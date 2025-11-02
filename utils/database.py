@@ -67,3 +67,7 @@ def execute_query(query, params=None, fetch_one=False, fetch_all=False):
         else:
             return None
     
+def get_user_by_email(email: str):
+    """Get user by email"""
+    query = "SELECT id, email, tier, created_at::text FROM users WHERE email = %s"
+    return execute_query(query, params=(email,), fetch_one=True)

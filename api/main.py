@@ -1,14 +1,26 @@
-from fastapi import FastAPI, HTTPException
+from fastapi import FastAPI, HTTPException, Depends
 from pydantic import BaseModel, EmailStr
 from typing import List, Optional
 import sys
 import os
 from datetime import date
+from fastapi.security import OAuth2PasswordRequestForm
 
 # Add parent directory to path so we can import utils
 sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
-from utils.database import execute_query, get_db
+from utils.database import execute_query, get_db, get_user_by_email
+from utils.auth import (hash_password, verify_password, create_access_token, get_current_user_email)
+from utils.analysis import analyze_user_data
+
+def get_current_user(current_user_email: str = Depends(get_current_user_email)):
+    """
+    Dependency to get full current user object
+    """
+    user = get_user_by_email(current_user_email)
+    if not user:
+        raise HTTPException(status_code=404, detail="User not found")
+    return user
 
 # Create FastAPI app
 app = FastAPI(
@@ -69,6 +81,14 @@ class DailyLogResponse(BaseModel):
     stress: float
     physical_activity_min: int
     created_at: str
+    
+class Token(BaseModel):
+    access_token: str
+    token_type: str
+    
+
+class TokenData(BaseModel):
+    email: Optional[str] = None
 
 # ============================================
 # ENDPOINTS
@@ -128,8 +148,7 @@ def get_user(user_id: int):
 @app.post("/users", response_model=UserResponse)
 def create_user(user: UserCreate):
     """
-    Create a new user
-    NOTE: Password hashing will be added in Day 3
+    Create a new user with hashed password
     """
     # Check if user already exists
     check_query = "SELECT id FROM users WHERE email = %s"
@@ -137,6 +156,9 @@ def create_user(user: UserCreate):
     
     if existing:
         raise HTTPException(status_code=400, detail="Email already registered")
+    
+    # Hash password
+    hashed_password = hash_password(user.password)
     
     # Insert new user
     insert_query = """
@@ -146,11 +168,90 @@ def create_user(user: UserCreate):
     """
     new_user = execute_query(
         insert_query,
-        params=(user.email, f"temp_hash_{user.password}"),
+        params=(user.email, hashed_password),
         fetch_one=True
     )
     
     return new_user
+
+@app.post("/login", response_model=Token)
+def login(form_data: OAuth2PasswordRequestForm = Depends()):
+    """
+    Login endpoint
+    
+    Takes username (email) and password
+    Returns JWT access token if credentials valid
+    
+    Usage in /docs:
+    1. Click "Authorize" button at top
+    2. Enter email as username, enter password
+    3. Click "Authorize"
+    4. Now all protected endpoints will use this token!
+    """
+    # Find user by email
+    query = "SELECT id, email, password_hash FROM users WHERE email = %s"
+    user = execute_query(query, params=(form_data.username,), fetch_one=True)
+
+    if not user:
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="Incorrect email or password",
+            headers={"WWW-Authenticate": "Bearer"},
+        )
+    
+    # Verify password
+    if not verify_password(form_data.password, user['password_hash']):
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="Incorrect email or password",
+            headers={"WWW-Authenticate": "Bearer"},
+        )
+    
+    # Create access token
+    access_token = create_access_token(data={"sub": user['email']})
+    return {"access_token": access_token, "token_type": "bearer"}
+
+@app.post("/change-password")
+def change_password(
+    old_password: str,
+    new_password: str,
+    current_user: dict = Depends(get_current_user)
+):
+    """
+    Change password for current user
+    """
+    user_id = current_user['id']
+    
+    # Verify old password
+    query = "SELECT password_hash FROM users WHERE id = %s"
+    user = execute_query(query, params=(user_id,), fetch_one=True)
+    
+    if not user or not verify_password(old_password, user['password_hash']):
+        raise HTTPException(status_code=401, detail="Invalid old password")
+    
+    # Hash new password
+    hashed_password = hash_password(new_password)
+    
+    # Update password
+    update_query = "UPDATE users SET password_hash = %s WHERE id = %s"
+    execute_query(update_query, params=(hashed_password, user_id))
+    
+    return {"message": "Password changed successfully"}
+
+@app.get("/me", response_model=UserResponse)
+def get_current_user(current_user_email: str = Depends(get_current_user_email)):
+    """
+    Get current logged-in user's information
+    
+    This endpoint requires authentication (JWT token)
+    """
+    query = "SELECT id, email, tier, created_at::text FROM users WHERE email = %s"
+    user = execute_query(query, params=(current_user_email,), fetch_one=True)
+    
+    if not user:
+        raise HTTPException(status_code=404, detail="User not found")
+    
+    return user
 
 @app.get("/users/{user_id}/summary")
 def get_user_summary(user_id: int):
@@ -286,11 +387,13 @@ def get_log(log_id: int):
     return log
 
 @app.post("/logs", response_model=DailyLogResponse)
-def create_log(log: DailyLogCreate, user_id: int = 1):
+def create_log(log: DailyLogCreate, current_user: dict = Depends(get_current_user)):
     """
     Create a new daily log
     NOTE: user_id is hardcoded for now - we'll add auth in Day 3
     """
+    user_id = current_user['id']
+    
     # Check if log already exists for this user/date
     check_query = """
         SELECT id FROM daily_logs 
@@ -334,18 +437,20 @@ def create_log(log: DailyLogCreate, user_id: int = 1):
     return new_log
 
 @app.put("/logs/{log_id}", response_model=DailyLogResponse)
-def update_log(log_id: int, log: DailyLogUpdate):
+def update_log(
+    log_id: int, 
+    log: DailyLogUpdate,
+    current_user: dict = Depends(get_current_user)  # NEW: Require auth
+):
     """
     Update an existing log
-    Only updates fields that are provided (not None)
+    Users can only update their own logs
     """
-    # Check if log exists
+    user_id = current_user['id']
+    
+    # Check if log exists AND belongs to current user
     check_query = """
-        SELECT id, user_id, log_date::text, mood, productivity,
-               sleep_hours, stress, physical_activity_min,
-               screen_time_hours, sleep_quality, diet_quality,
-               social_interaction_hours, weather, notes
-        FROM daily_logs 
+        SELECT id, user_id FROM daily_logs 
         WHERE id = %s
     """
     existing_log = execute_query(check_query, params=(log_id,), fetch_one=True)
@@ -353,7 +458,14 @@ def update_log(log_id: int, log: DailyLogUpdate):
     if not existing_log:
         raise HTTPException(status_code=404, detail="Log not found")
     
-    # Build update query dynamically based on provided fields
+    # Verify ownership
+    if existing_log['user_id'] != user_id:
+        raise HTTPException(
+            status_code=403, 
+            detail="You don't have permission to update this log"
+        )
+    
+    # Build update query (same as before)
     update_fields = []
     params = []
     
@@ -394,10 +506,8 @@ def update_log(log_id: int, log: DailyLogUpdate):
     if not update_fields:
         raise HTTPException(status_code=400, detail="No fields to update")
     
-    # Add log_id to params
     params.append(log_id)
     
-    # Build and execute update query
     update_query = f"""
         UPDATE daily_logs
         SET {', '.join(update_fields)}
@@ -411,10 +521,12 @@ def update_log(log_id: int, log: DailyLogUpdate):
     return updated_log
 
 @app.delete("/logs/{log_id}")
-def delete_log(log_id: int):
+def delete_log(log_id: int, current_user: dict = Depends(get_current_user)):
     """
     Delete a specific log by ID
     """
+    user_id = current_user['id']
+    
     # Check if log exists
     log_check = execute_query(
         "SELECT id FROM daily_logs WHERE id = %s",
@@ -425,6 +537,13 @@ def delete_log(log_id: int):
     if not log_check:
         raise HTTPException(status_code=404, detail="Log not found")
     
+    # Verify ownership
+    if log_check['user_id'] != user_id:
+        raise HTTPException(
+            status_code=403,
+            detail="You don't have permission to delete this log"
+        )
+    
     # Delete log
     delete_query = "DELETE FROM daily_logs WHERE id = %s"
     execute_query(delete_query, params=(log_id,))
@@ -433,6 +552,85 @@ def delete_log(log_id: int):
         "message": "Log deleted successfully",
         "deleted_log_id": log_id
     }
+    
+@app.get("/my-logs", response_model=List[DailyLogResponse])
+def get_my_logs(
+    current_user: dict = Depends(get_current_user),
+    start_date: Optional[date] = None,
+    end_date: Optional[date] = None,
+):
+    """
+    Get current user's logs
+    Requires authentication
+    Optional filters: start_date, end_date
+    """
+    user_id = current_user['id']
+    
+    # Build query
+    query = """
+        SELECT id, user_id, log_date::text, mood, productivity,
+               sleep_hours, stress, physical_activity_min, created_at::text
+        FROM daily_logs
+        WHERE user_id = %s
+    """
+    
+    params = [user_id]
+    
+    if start_date:
+        query += " AND log_date >= %s"
+        params.append(start_date)
+    
+    if end_date:
+        query += " AND log_date <= %s"
+        params.append(end_date)
+    
+    query += " ORDER BY log_date DESC"
+    
+    logs = execute_query(query, params=tuple(params), fetch_all=True)
+    
+    return logs if logs else []
+
+@app.get("/analysis")
+def get_analysis(current_user: dict = Depends(get_current_user)):
+    """
+    Get personalized analysis for current user
+    Requires at least 7 days of logged data
+    
+    Returns:
+    - Summary statistics
+    - Correlation analysis
+    - Boosters & drainers
+    - Top recommendation
+    - Action plan
+    - Time series data for charts
+    """
+    user_id = current_user['id']
+    
+    # Fetch all logs for user
+    query = """
+        SELECT * FROM daily_logs
+        WHERE user_id = %s
+        ORDER BY log_date
+    """
+    logs = execute_query(query, params=(user_id,), fetch_all=True)
+    
+    if not logs:
+        raise HTTPException(
+            status_code=400,
+            detail="No logs found. Please log at least 7 days of data."
+        )
+
+    # Run analysis
+    analysis_result = analyze_user_data(logs, user_id)
+    
+    # Check if error (not enough data)
+    if "error" in analysis_result:
+        raise HTTPException(
+            status_code=400,
+            detail=analysis_result["error"]
+        )
+        
+    return analysis_result
 
 # ============================================
 # RUN SERVER (for development)
