@@ -30,9 +30,14 @@ app = FastAPI(
     version="1.0.0"
 )
 
+origins = [
+    "http://localhost:5174",  # Your local Vite dev server
+    "https://melodic-profiterole-d6734e.netlify.app"  # Your deployed Netlify site
+]
+
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["http://localhost:5174"],  # Vite dev server
+    allow_origins=origins,
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
