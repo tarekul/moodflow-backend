@@ -1,8 +1,9 @@
+import os
 import psycopg2
 from pathlib import Path
 
 # Database configuration
-DB_CONFIG = {
+LOCAL_DB_CONFIG = {
     'dbname': 'moodflow',
     'user': 'tarek',
     'password': '',
@@ -11,18 +12,35 @@ DB_CONFIG = {
 }
 
 def get_connection():
-    """Connect to PostgreSQL database"""
-    return psycopg2.connect(**DB_CONFIG)
+    """
+    Connect to PostgreSQL database.
+    Prioritizes DATABASE_URL (Neon/Render), falls back to LOCAL_DB_CONFIG.
+    """
+    db_url = os.getenv("DATABASE_URL")
+    
+    if db_url:
+        # Connect to Remote (Neon)
+        return psycopg2.connect(db_url)
+    else:
+        # Connect to Local
+        return psycopg2.connect(**LOCAL_DB_CONFIG)
 
 def create_database_if_not_exists():
-    """Create moodflow database if it doesn't exist"""
+    """
+    Create moodflow database if it doesn't exist.
+    SKIPS THIS STEP if we are using a remote DATABASE_URL.
+    """
+    if os.getenv("DATABASE_URL"):
+        print("☁️  Detected remote database URL. Skipping DB creation check.")
+        return
+        
     # Connect to default postgres database
     conn = psycopg2.connect(
         dbname='postgres',
-        user=DB_CONFIG['user'],
-        password=DB_CONFIG['password'],
-        host=DB_CONFIG['host'],
-        port=DB_CONFIG['port']
+        user=LOCAL_DB_CONFIG['user'],
+        password=LOCAL_DB_CONFIG['password'],
+        host=LOCAL_DB_CONFIG['host'],
+        port=LOCAL_DB_CONFIG['port']
     )
     conn.autocommit = True
     cursor = conn.cursor()

@@ -4,8 +4,11 @@
 
 -- Insert test users
 INSERT INTO users (email, password_hash) VALUES
-('alice@example.com', 'temp_hash_alice'),
-('bob@example.com', 'temp_hash_bob')
+('alice@example.com', '$2b$12$qEn86L4HHbs1oltzltFRb.050n9LqPQv5wfPhKlbLmPvXbCZsst5K'),
+('bob@example.com', '$2b$12$qEn86L4HHbs1oltzltFRb.050n9LqPQv5wfPhKlbLmPvXbCZsst5K'),
+('charlie@example.com', '$2b$12$qEn86L4HHbs1oltzltFRb.050n9LqPQv5wfPhKlbLmPvXbCZsst5K'),
+('david@example.com', '$2b$12$qEn86L4HHbs1oltzltFRb.050n9LqPQv5wfPhKlbLmPvXbCZsst5K'),
+('eve@example.com', '$2b$12$qEn86L4HHbs1oltzltFRb.050n9LqPQv5wfPhKlbLmPvXbCZsst5K')
 ON CONFLICT (email) DO NOTHING;
 
 -- Insert specific test logs for Alice using the provided data
