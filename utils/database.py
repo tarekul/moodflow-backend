@@ -1,9 +1,10 @@
+import os
 import psycopg2
 from psycopg2.extras import RealDictCursor
 from contextlib import contextmanager
 
 # Database configuration
-DB_CONFIG = {
+LOCAL_DB_CONFIG = {
     'dbname': 'moodflow',
     'user': 'tarek',
     'password': '',
@@ -15,9 +16,13 @@ DB_CONFIG = {
 def get_db_connection():
     """
     Create a database connection.
-    Returns a connection object.
+    Checks for DATABASE_URL environment variable first (Production),
+    otherwise falls back to LOCAL_DB_CONFIG (Development).
     """
-    conn = psycopg2.connect(**DB_CONFIG)
+    if 'DATABASE_URL' in os.environ:
+        conn = psycopg2.connect(os.environ['DATABASE_URL'])
+    else:
+        conn = psycopg2.connect(**LOCAL_DB_CONFIG)
     return conn
 
 # Context manager for database connections (automatically closes connection)
