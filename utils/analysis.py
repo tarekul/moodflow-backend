@@ -275,7 +275,7 @@ def calculate_population_correlations() -> Tuple[Dict[str, float], Dict[str, flo
             population_avg[factor_name] = float(np.mean(factor_correlations))
             population_std[factor_name] = float(np.std(factor_correlations))
     
-    return population_avg, population_std
+    return population_avg, population_std, len(all_user_correlations)
 
 def compare_to_population(
     user_correlations: List[Dict],
@@ -379,7 +379,7 @@ def analyze_user_data(logs: List[Dict], user_id: int) -> Dict:
     correlations = calculate_correlations(df)
     
     # Calculate population correlations
-    population_avg, population_std = calculate_population_correlations()
+    population_avg, population_std, population_user_count = calculate_population_correlations()
     
     # Compare user to population
     population_comparison = compare_to_population(
@@ -431,7 +431,7 @@ def analyze_user_data(logs: List[Dict], user_id: int) -> Dict:
         "population_stats": {
             "averages": round_floats(population_avg),
             "std_deviations": round_floats(population_std),
-            "users_analyzed": len(population_avg)
+            "users_analyzed": population_user_count
         }
     }
     

@@ -1,10 +1,11 @@
-from fastapi import FastAPI, HTTPException, Depends
+from fastapi import FastAPI, HTTPException, Depends, status
 from pydantic import BaseModel, EmailStr
 from typing import List, Optional
 import sys
 import os
 from datetime import date
 from fastapi.security import OAuth2PasswordRequestForm
+from fastapi.middleware.cors import CORSMiddleware
 
 # Add parent directory to path so we can import utils
 sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
@@ -27,6 +28,14 @@ app = FastAPI(
     title="MoodFlow API",
     description="Personalized productivity analytics API",
     version="1.0.0"
+)
+
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=["http://localhost:5174"],  # Vite dev server
+    allow_credentials=True,
+    allow_methods=["*"],
+    allow_headers=["*"],
 )
 
 # ============================================
@@ -390,7 +399,6 @@ def get_log(log_id: int):
 def create_log(log: DailyLogCreate, current_user: dict = Depends(get_current_user)):
     """
     Create a new daily log
-    NOTE: user_id is hardcoded for now - we'll add auth in Day 3
     """
     user_id = current_user['id']
     
