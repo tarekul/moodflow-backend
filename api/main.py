@@ -542,7 +542,7 @@ def delete_log(log_id: int, current_user: dict = Depends(get_current_user)):
     
     # Check if log exists
     log_check = execute_query(
-        "SELECT id FROM daily_logs WHERE id = %s",
+        "SELECT id, user_id FROM daily_logs WHERE id = %s",
         params=(log_id,),
         fetch_one=True
     )
