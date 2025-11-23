@@ -582,7 +582,10 @@ def get_my_logs(
     # Build query
     query = """
         SELECT id, user_id, log_date::text, mood, productivity,
-               sleep_hours, stress, physical_activity_min, created_at::text
+               sleep_hours, stress, screen_time_hours,
+               physical_activity_min, sleep_quality, diet_quality,
+               social_interaction_hours, weather, notes,
+               created_at::text
         FROM daily_logs
         WHERE user_id = %s
     """
