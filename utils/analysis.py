@@ -123,7 +123,7 @@ def get_top_recommendation(correlations: List[Dict]) -> Dict:
         "is_booster": top['is_booster']
     }
 
-def create_action_plan(boosters: List[Dict], drainers: List[Dict]) -> List[Dict]:
+def create_action_plan(correlations: List[Dict]) -> List[Dict]:
     """
     Create actionable plan based on correlations
     (Phase 4 code!)
@@ -180,19 +180,21 @@ def create_action_plan(boosters: List[Dict], drainers: List[Dict]) -> List[Dict]
         }
     }
     
-    # Add top 3 boosters to action plan
-    for booster in boosters:
-        factor = booster['factor']
+    top_3_factors = correlations[:3]
+    
+    # Add top 3 factors to action plan
+    for correlation in top_3_factors:
+        factor = correlation['factor']
         if factor in action_map:
             action_plan.append({
                 "priority": priority,
                 "factor": factor,
                 "emoji": action_map[factor]["emoji"],
-                "correlation": booster['correlation'],
-                "strength": booster['strength'],
+                "correlation": correlation['correlation'],
+                "strength": correlation['strength'],
                 "daily_actions": action_map[factor]["actions"],
                 "success_metric": action_map[factor]["success_metric"],
-                "potential_impact": abs(booster['correlation']) * 2
+                "potential_impact": abs(correlation['correlation']) * 2
             })
             priority += 1
     
@@ -395,7 +397,7 @@ def analyze_user_data(logs: List[Dict], user_id: int) -> Dict:
     top_rec = get_top_recommendation(correlations)
     
     # Action plan
-    action_plan = create_action_plan(boosters, drainers)
+    action_plan = create_action_plan(correlations)
     
     # Summary stats
     summary = {
