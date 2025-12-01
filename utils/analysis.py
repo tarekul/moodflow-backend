@@ -1,7 +1,7 @@
 import pandas as pd
 import numpy as np
 from typing import Dict, List, Any, Tuple
-from datetime import datetime
+from datetime import datetime, date
 from utils.database import execute_query
 
 def round_floats(obj):
@@ -354,6 +354,157 @@ def get_interpretation(factor: str, comparison: str, abs_diff: float) -> str:
     
     return interpretations.get(factor, f"You are {sensitivity} sensitive to {factor} than average.")
 
+def calculate_general_lift(df: pd.DataFrame, factor_col, factor_name, is_booster=True):
+    """
+    Calculates productivity difference between High vs Low values of ANY factor.
+    """
+    # 1. Determine Threshold
+    threshold = df[factor_col].median()
+    
+    # FIX: If median is 0 (common for exercise), default to a meaningful minimum
+    if threshold == 0:
+        if 'min' in factor_col: # Physical Activity
+            threshold = 15.0 # Anything > 15 mins counts as "Active"
+        elif 'hours' in factor_col: # Screen Time / Social
+            threshold = 1.0 
+            
+    # 2. Split groups
+    if is_booster:
+        high_group = df[df[factor_col] >= threshold]
+        low_group = df[df[factor_col] < threshold]
+        # Dynamically describe the groups for clearer insights
+        group_desc = f"{factor_name} is high (> {int(threshold)})"
+    else:
+        # For drainers, we compare "Good State" (Low) vs "Bad State" (High)
+        high_group = df[df[factor_col] < threshold]
+        low_group = df[df[factor_col] >= threshold]
+        group_desc = f"{factor_name} is low (< {int(threshold)})"
+
+    if len(high_group) < 2 or len(low_group) < 2: return None # Lowered to 2 for small datasets
+    
+    # 3. Calculate Lift
+    avg_high = high_group['productivity'].mean()
+    avg_low = low_group['productivity'].mean()
+    
+    if avg_low == 0: return None
+    
+    lift = ((avg_high - avg_low) / avg_low) * 100
+    
+    # 4. Generate Insight
+    if lift > 5:
+        return f"🚀 You are {int(lift)}% more productive when {group_desc}."
+    
+    return None
+
+def find_optimal_factor_zone(df, factor_col, factor_name):
+    """
+    Finds the 'Sweet Spot' for any numerical factor.
+    """
+    # 1. Create Bins dynamically based on data range
+    min_val = df[factor_col].min() # 2
+    max_val = df[factor_col].max() # 10
+    
+    # Create ~4-5 bins
+    if max_val - min_val < 2: return None # Range too small
+    
+    # Custom bin sizes based on factor type
+    if 'hours' in factor_col:
+        step = 1.0
+    elif 'min' in factor_col: 
+        step = 15.0 # 15 min chunks
+    else:
+        step = 2.0 # 1-10 scales
+        
+    df['temp_bin'] = df[factor_col].apply(lambda x: round(x / step) * step)
+    
+    # 2. Analyze Bins
+    min_required = 1 if len(df) < 15 else 2
+    stats = df.groupby('temp_bin')['productivity'].agg(['mean', 'count'])
+    valid_stats = stats[stats['count'] >= min_required] # Need valid data
+    
+    if valid_stats.empty: return None
+    
+    # 3. Find Peak
+    best_bin = valid_stats['mean'].idxmax()
+    
+    # 4. Format Output
+    if 'hours' in factor_col:
+        unit = "hours"
+    elif 'min' in factor_col:
+        unit = "minutes"
+    else:
+        unit = "points"
+        
+    # Polish the text for 0 values
+    if best_bin == 0:
+        if factor_name == "Stress":
+            return f"Your peak productivity happens when you have **zero stress**."
+        if factor_name == "Screen Time Hours":
+            return f"Your peak productivity happens with **zero screen time**."
+            
+    return f"Your peak productivity happens at {best_bin} {unit} of {factor_name}."
+
+def predict_today_productivity(df: pd.DataFrame):
+    """
+    Predicts today's productivity based on sleep and last mood
+    """
+    
+    # 1. Prepare Data: Sort by date
+    df = df.sort_values('log_date')
+    
+    # 2. Create Previous Day Mood
+    df['previous_day_mood'] = df['mood'].shift(1)
+    
+    # Get the very last log entry from the DB
+    if df.empty: return None
+    current_log = df.iloc[-1]
+    
+    # Check 1: Is the last log actually from TODAY?
+    # Ensure formats match (date object comparison)
+    today = date.today()
+    if current_log['log_date'].date() != today:
+        return None  # User hasn't started a log for today yet
+        
+    # Check 2: Did they log Sleep Hours? (And is it not None/NaN)
+    if pd.isna(current_log['sleep_hours']) or current_log['sleep_hours'] == 0:
+        return None  # Sleep hasn't been logged yet
+        
+    # Check 3: Do we have "Yesterday's Mood"?
+    # If this is the very first day, shift(1) will be NaN
+    if pd.isna(current_log['previous_day_mood']):
+        return None  # Cannot predict without history
+    
+    # 3. Drop rows with missing data (e.g., the first day has no "yesterday")
+    model_df = df[['previous_day_mood', 'sleep_hours', 'productivity']].dropna()
+    
+    # Need at least ~10 days of continuous data for a decent prediction
+    if len(model_df) < 10:
+        return "Keep logging! We need more continuous days to predict your productivity."
+    
+    # 4. Prepare Matrices for Linear Regression (y = mx + c)
+    Y = model_df['productivity'].values
+    X = model_df[['previous_day_mood', 'sleep_hours']].values
+    # Add column of ones for intercept
+    X = np.c_[X, np.ones(X.shape[0])]
+    
+    # 5. Train Model (Least Squares)
+    # weights[0] = sleep weight, weights[1] = mood weight, weights[2] = bias
+    weights, residuals, rank, s = np.linalg.lstsq(X, Y, rcond=None)
+    
+    # 6. Make Prediction for "Today"
+    last_log = model_df.iloc[-1]
+    last_sleep = last_log['sleep_hours']
+    last_mood = last_log['previous_day_mood']
+    
+    prediction = weights[0] * last_sleep + weights[1] * last_mood + weights[2]
+    
+    predicted_score = max(1, min(10, round(prediction, 1)))
+    
+    # Clamp result between 1-10
+    predicted_score = max(1, min(10, round(predicted_score, 1)))
+    
+    return f"Based on your sleep and yesterday's mood, today looks like a {predicted_score}/10 productivity day."
+    
 def analyze_user_data(logs: List[Dict], user_id: int) -> Dict:
     """
     Main analysis function - runs all phases INCLUDING population comparison
@@ -415,6 +566,45 @@ def analyze_user_data(logs: List[Dict], user_id: int) -> Dict:
     # Round all numeric values in time series
     time_series = round_floats(time_series)
     
+    smart_insights = []
+    
+    # Predict today's productivity
+    predicted_productivity = predict_today_productivity(df)
+    
+    # Add prediction to insights
+    smart_insights.append({
+        "type": "prediction",
+        "message": predicted_productivity,
+        "priority": 1
+    })
+    
+    top_factors = correlations[:3]
+    
+    for factor in top_factors:
+        col_name = factor['factor'].lower().replace(' ', '_')
+        
+        # Try to find optimal zone
+        if factor['factor'] not in ["Mood", "Diet Quality", "Social Interaction"]:
+            display_name = factor['factor']
+            display_name = display_name.replace(' Hours', '').replace(' Min', '').replace(' Score', '') 
+            opt_msg = find_optimal_factor_zone(df, col_name, display_name)
+            if opt_msg:
+                smart_insights.append({
+                    "type": "optimization", 
+                    "message": opt_msg,
+                    "priority": 2
+                })
+            
+    # Try to find lift
+    lift_msg = calculate_general_lift(df, col_name, factor['factor'], factor['is_booster'])
+    if lift_msg:
+        smart_insights.append({
+            "type": "impact",
+            "message": lift_msg,
+            "priority": 3
+        })
+        
+    
     result = {
         "user_id": user_id,
         "days_logged": len(df),
@@ -434,7 +624,8 @@ def analyze_user_data(logs: List[Dict], user_id: int) -> Dict:
             "averages": round_floats(population_avg),
             "std_deviations": round_floats(population_std),
             "users_analyzed": population_user_count
-        }
+        },
+        "smart_insights": smart_insights
     }
     
     return result
