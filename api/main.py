@@ -59,15 +59,15 @@ class UserCreate(BaseModel):
 
 class DailyLogCreate(BaseModel):
     log_date: date
-    mood: float
-    productivity: float
+    mood: Optional[float] = None
+    productivity: Optional[float] = None
     sleep_hours: float
-    stress: float
-    physical_activity_min: int
-    screen_time_hours: Optional[float] = 0
+    stress: Optional[float] = None
+    physical_activity_min: Optional[int] = None
+    screen_time_hours: Optional[float] = None
     sleep_quality: Optional[str] = None
     diet_quality: Optional[str] = None
-    social_interaction_hours: Optional[float] = 0
+    social_interaction_hours: Optional[float] = None
     weather: Optional[str] = None
     notes: Optional[str] = None
 
@@ -88,12 +88,12 @@ class DailyLogUpdate(BaseModel):
 class DailyLogResponse(BaseModel):
     id: int
     user_id: int
-    log_date: str
-    mood: float
-    productivity: float
+    log_date: date
+    mood: Optional[float] = None
+    productivity: Optional[float] = None
     sleep_hours: float
-    stress: float
-    physical_activity_min: int
+    stress: Optional[float] = None
+    physical_activity_min: Optional[int] = None
     created_at: str
     
 class Token(BaseModel):

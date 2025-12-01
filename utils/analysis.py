@@ -3,10 +3,16 @@ import numpy as np
 from typing import Dict, List, Any, Tuple
 from datetime import datetime, date
 from utils.database import execute_query
+import math
 
 def round_floats(obj):
-    """Recursively round all float values to 2 decimal places"""
+    """
+    Recursively round floats to 2 decimals.
+    Converts NaN/Infinity to None (null) for valid JSON.
+    """
     if isinstance(obj, float):
+        if math.isnan(obj) or math.isinf(obj):
+            return None # JSON standard uses null, not NaN
         return round(obj, 2)
     elif isinstance(obj, dict):
         return {k: round_floats(v) for k, v in obj.items()}
@@ -358,8 +364,11 @@ def calculate_general_lift(df: pd.DataFrame, factor_col, factor_name, is_booster
     """
     Calculates productivity difference between High vs Low values of ANY factor.
     """
+    clean_df = df.dropna(subset=[factor_col, 'productivity']).copy()
+    if clean_df.empty: return None
+    
     # 1. Determine Threshold
-    threshold = df[factor_col].median()
+    threshold = clean_df[factor_col].median()
     
     # FIX: If median is 0 (common for exercise), default to a meaningful minimum
     if threshold == 0:
@@ -370,14 +379,14 @@ def calculate_general_lift(df: pd.DataFrame, factor_col, factor_name, is_booster
             
     # 2. Split groups
     if is_booster:
-        high_group = df[df[factor_col] >= threshold]
-        low_group = df[df[factor_col] < threshold]
+        high_group = clean_df[clean_df[factor_col] >= threshold]
+        low_group = clean_df[clean_df[factor_col] < threshold]
         # Dynamically describe the groups for clearer insights
         group_desc = f"{factor_name} is high (> {int(threshold)})"
     else:
         # For drainers, we compare "Good State" (Low) vs "Bad State" (High)
-        high_group = df[df[factor_col] < threshold]
-        low_group = df[df[factor_col] >= threshold]
+        high_group = clean_df[clean_df[factor_col] < threshold]
+        low_group = clean_df[clean_df[factor_col] >= threshold]
         group_desc = f"{factor_name} is low (< {int(threshold)})"
 
     if len(high_group) < 2 or len(low_group) < 2: return None # Lowered to 2 for small datasets
@@ -389,10 +398,31 @@ def calculate_general_lift(df: pd.DataFrame, factor_col, factor_name, is_booster
     if avg_low == 0: return None
     
     lift = ((avg_high - avg_low) / avg_low) * 100
+    diff = avg_high - avg_low
     
     # 4. Generate Insight
-    if lift > 5:
-        return f"🚀 You are {int(lift)}% more productive when {group_desc}."
+    # Handle "Massive" Lift (> 100%)
+    if lift >= 100:
+        return f"🚀 You are **twice as productive** (+{diff:.1f} pts) when {group_desc}."
+        
+    # Handle "Big" Lift (> 50%)
+    elif lift > 50:
+        return f"🚀 You are **{int(lift)}% more productive** (+{diff:.1f} pts) when {group_desc}."
+        
+    # Handle "Moderate" Lift (> 5%)
+    elif lift > 5:
+        return f"📈 You get a **{int(lift)}% boost** (+{diff:.1f} pts) when {group_desc}."
+    
+    elif lift < -50:
+        return f"⚠️ **Critical Drain:** Your productivity is **cut in half** (-{abs(diff):.1f} pts) when {group_desc}."
+        
+    # "Big Drop" (20% - 50% loss)
+    elif lift < -20:
+        return f"⚠️ You are **{abs(int(lift))}% less productive** (-{abs(diff):.1f} pts) when {group_desc}."
+        
+    # "Moderate Drop" (5% - 20% loss)
+    elif lift < -5:
+        return f"📉 You experience a **{abs(int(lift))}% dip** in productivity (-{abs(diff):.1f} pts) when {group_desc}."
     
     return None
 
@@ -400,9 +430,12 @@ def find_optimal_factor_zone(df, factor_col, factor_name):
     """
     Finds the 'Sweet Spot' for any numerical factor.
     """
+    clean_df = df.dropna(subset=[factor_col, 'productivity']).copy()
+    if clean_df.empty: return None
+    
     # 1. Create Bins dynamically based on data range
-    min_val = df[factor_col].min() # 2
-    max_val = df[factor_col].max() # 10
+    min_val = clean_df[factor_col].min() # 2
+    max_val = clean_df[factor_col].max() # 10
     
     # Create ~4-5 bins
     if max_val - min_val < 2: return None # Range too small
@@ -415,11 +448,11 @@ def find_optimal_factor_zone(df, factor_col, factor_name):
     else:
         step = 2.0 # 1-10 scales
         
-    df['temp_bin'] = df[factor_col].apply(lambda x: round(x / step) * step)
+    clean_df['temp_bin'] = clean_df[factor_col].apply(lambda x: round(x / step) * step)
     
     # 2. Analyze Bins
-    min_required = 1 if len(df) < 15 else 2
-    stats = df.groupby('temp_bin')['productivity'].agg(['mean', 'count'])
+    min_required = 1 if len(clean_df) < 15 else 2
+    stats = clean_df.groupby('temp_bin')['productivity'].agg(['mean', 'count'])
     valid_stats = stats[stats['count'] >= min_required] # Need valid data
     
     if valid_stats.empty: return None
@@ -467,7 +500,7 @@ def predict_today_productivity(df: pd.DataFrame):
         
     # Check 2: Did they log Sleep Hours? (And is it not None/NaN)
     if pd.isna(current_log['sleep_hours']) or current_log['sleep_hours'] == 0:
-        return None  # Sleep hasn't been logged yet
+        return None
         
     # Check 3: Do we have "Yesterday's Mood"?
     # If this is the very first day, shift(1) will be NaN
@@ -483,20 +516,16 @@ def predict_today_productivity(df: pd.DataFrame):
     
     # 4. Prepare Matrices for Linear Regression (y = mx + c)
     Y = model_df['productivity'].values
-    X = model_df[['previous_day_mood', 'sleep_hours']].values
+    X = model_df[['sleep_hours', 'previous_day_mood']].values
     # Add column of ones for intercept
     X = np.c_[X, np.ones(X.shape[0])]
     
     # 5. Train Model (Least Squares)
     # weights[0] = sleep weight, weights[1] = mood weight, weights[2] = bias
-    weights, residuals, rank, s = np.linalg.lstsq(X, Y, rcond=None)
+    weights, _, _, _ = np.linalg.lstsq(X, Y, rcond=None)
     
     # 6. Make Prediction for "Today"
-    last_log = model_df.iloc[-1]
-    last_sleep = last_log['sleep_hours']
-    last_mood = last_log['previous_day_mood']
-    
-    prediction = weights[0] * last_sleep + weights[1] * last_mood + weights[2]
+    prediction = weights[0] * current_log['sleep_hours'] + weights[1] * current_log['previous_day_mood'] + weights[2]
     
     predicted_score = max(1, min(10, round(prediction, 1)))
     
@@ -572,11 +601,12 @@ def analyze_user_data(logs: List[Dict], user_id: int) -> Dict:
     predicted_productivity = predict_today_productivity(df)
     
     # Add prediction to insights
-    smart_insights.append({
-        "type": "prediction",
-        "message": predicted_productivity,
-        "priority": 1
-    })
+    if predicted_productivity and isinstance(predicted_productivity, str):
+        smart_insights.append({
+            "type": "prediction", 
+            "message": predicted_productivity,
+            "priority": 1
+        })
     
     top_factors = correlations[:3]
     
@@ -594,17 +624,15 @@ def analyze_user_data(logs: List[Dict], user_id: int) -> Dict:
                     "message": opt_msg,
                     "priority": 2
                 })
-            
-    # Try to find lift
-    lift_msg = calculate_general_lift(df, col_name, factor['factor'], factor['is_booster'])
-    if lift_msg:
-        smart_insights.append({
-            "type": "impact",
-            "message": lift_msg,
-            "priority": 3
-        })
-        
-    
+                
+        lift_msg = calculate_general_lift(df, col_name, factor['factor'], factor['is_booster'])
+        if lift_msg:
+            smart_insights.append({
+                "type": "impact",
+                "message": lift_msg,
+                "priority": 3
+            })
+
     result = {
         "user_id": user_id,
         "days_logged": len(df),
