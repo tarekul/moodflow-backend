@@ -2,8 +2,10 @@ import pandas as pd
 import numpy as np
 from typing import Dict, List, Any, Tuple
 from datetime import datetime, date
+from utils.action_library import action_library
 from utils.database import execute_query
 import math
+import random
 
 def round_floats(obj):
     """
@@ -137,69 +139,22 @@ def create_action_plan(correlations: List[Dict]) -> List[Dict]:
     action_plan = []
     priority = 1
     
-    # Actions for boosters
-    action_map = {
-        "Mood": {
-            "emoji": "😊",
-            "actions": [
-                "Morning: Write 3 gratitudes",
-                "Midday: 30-min mood-boost activity",
-                "Evening: Connect with 1 person"
-            ],
-            "success_metric": "Mood score ≥ 7 on at least 5 days"
-        },
-        "Sleep Hours": {
-            "emoji": "😴",
-            "actions": [
-                "Set consistent bedtime (10 PM)",
-                "No screens 1 hour before bed",
-                "Morning: 10 min sunlight exposure"
-            ],
-            "success_metric": "Sleep 7-8 hours on at least 5 nights"
-        },
-        "Physical Activity Min": {
-            "emoji": "🏃",
-            "actions": [
-                "Morning: 20-min walk or workout",
-                "Take stairs instead of elevator",
-                "Evening: 10-min stretching"
-            ],
-            "success_metric": "30+ minutes activity on 5 days"
-        },
-        "Stress": {
-            "emoji": "🧘",
-            "actions": [
-                "Morning: 5-min meditation",
-                "Midday: 10-min walk break",
-                "Evening: Brain dump worries"
-            ],
-            "success_metric": "Stress score ≤ 5 on at least 5 days"
-        },
-        "Screen Time Hours": {
-            "emoji": "📱",
-            "actions": [
-                "Set app time limits (2 hours max)",
-                "No phone during meals",
-                "Evening: Device-free hour before bed"
-            ],
-            "success_metric": "Screen time < 6 hours on 5 days"
-        }
-    }
-    
     top_3_factors = correlations[:3]
     
     # Add top 3 factors to action plan
     for correlation in top_3_factors:
         factor = correlation['factor']
-        if factor in action_map:
+        if factor in action_library:
+            strategy = random.choice(action_library[factor]["strategies"])
             action_plan.append({
                 "priority": priority,
                 "factor": factor,
-                "emoji": action_map[factor]["emoji"],
+                "emoji": action_library[factor]["emoji"],
                 "correlation": correlation['correlation'],
                 "strength": correlation['strength'],
-                "daily_actions": action_map[factor]["actions"],
-                "success_metric": action_map[factor]["success_metric"],
+                "title": strategy["title"],
+                "daily_actions": strategy["actions"],
+                "success_metric": strategy["metric"],
                 "potential_impact": abs(correlation['correlation']) * 2
             })
             priority += 1
