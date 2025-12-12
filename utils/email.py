@@ -62,10 +62,6 @@ def send_password_reset_email(email: str, reset_token: str):
             return True
         else:
             print(f"❌ Failed to send email. Status: {result.status_code}")
-            print("API KEY:", settings.MAILJET_API_KEY)
-            print("SECRET KEY:", settings.MAILJET_SECRET_KEY)
-            print("SENDER:", settings.MAILJET_SENDER_EMAIL)
-            print("Mailjet response:", result.json())
             return False
     
     except Exception as e:
