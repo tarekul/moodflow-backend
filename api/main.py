@@ -3,13 +3,14 @@ from pydantic import BaseModel, EmailStr
 from typing import List, Optional
 import sys
 import os
-from datetime import date
+from datetime import date, datetime, timedelta
 from fastapi.security import OAuth2PasswordRequestForm
 from fastapi.middleware.cors import CORSMiddleware
 
 # Add parent directory to path so we can import utils
 sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
+from utils.email import send_password_reset_email, generate_reset_token
 from utils.database import execute_query, get_db, get_user_by_email
 from utils.auth import (hash_password, verify_password, create_access_token, get_current_user_email)
 from utils.analysis import analyze_user_data
@@ -103,6 +104,13 @@ class Token(BaseModel):
 
 class TokenData(BaseModel):
     email: Optional[str] = None
+    
+class ForgotPasswordRequest(BaseModel):
+    email: EmailStr
+    
+class ResetPasswordRequest(BaseModel):
+    token: str
+    new_password: str
 
 # ============================================
 # ENDPOINTS
@@ -349,6 +357,109 @@ def get_user_logs(
     logs = execute_query(query, params=tuple(params), fetch_all=True)
     
     return logs if logs else []
+
+# ============================================
+# PASSWORD RESET ENDPOINTS
+# ============================================
+
+@app.post("/forgot-password")
+def forgot_password(request: ForgotPasswordRequest):
+    """
+    Request password reset - sends email with reset token
+    
+    Step 1 of password reset flow
+    """
+    email = request.email
+    
+    # Check if user exists
+    query = "SELECT id, email FROM users WHERE email = %s"
+    user = execute_query(query, params=(email,), fetch_one=True)
+    
+    if not user:
+        return {
+            "message": "If that email exists, a reset link has been sent."
+        }
+    
+    # Generate reset token
+    reset_token = generate_reset_token()
+    expires_at = datetime.now() + timedelta(hours=1)
+    
+    # Save reset token in database
+    update_query = """
+        UPDATE users 
+        SET reset_token = %s, reset_token_expires_at = %s
+        WHERE id = %s
+    """
+    execute_query(update_query, params=(reset_token, expires_at, user['id']))
+    
+    # Send email
+    email_sent = send_password_reset_email(email, reset_token)
+    
+    if not email_sent:
+        raise HTTPException(
+            status_code=500,
+            detail="Failed to send reset email. Please try again."
+        )
+    
+    return {
+        "message": "If that email exists, a reset link has been sent."
+    }
+    
+@app.post("/reset-password")
+def reset_password(request: ResetPasswordRequest):
+    """
+    Reset password using token from email
+    
+    Step 2 of password reset flow
+    """
+    token = request.token
+    new_password = request.new_password
+    
+    # Find user by reset token
+    query = """
+        SELECT id, email, reset_token_expires_at 
+        FROM users 
+        WHERE reset_token = %s
+    """
+    user = execute_query(query, params=(token,), fetch_one=True)
+    
+    if not user:
+        raise HTTPException(
+            status_code=400,
+            detail="Invalid or expired reset token"
+        )
+    
+    # Check if token expired
+    expires_at = user['reset_token_expires_at']
+    if datetime.now() > expires_at:
+        raise HTTPException(
+            status_code=400,
+            detail="Reset token has expired. Please request a new one."
+        )
+    
+    # Hash new password
+    hashed_password = hash_password(new_password)
+    
+    # Update password
+    update_query = "UPDATE users SET password_hash = %s WHERE id = %s"
+    execute_query(update_query, params=(hashed_password, user['id']))
+    
+    # Update password and clear reset token
+    update_query = """
+        UPDATE users 
+        SET password_hash = %s, 
+            reset_token = NULL, 
+            reset_token_expires_at = NULL
+        WHERE id = %s
+    """
+    execute_query(
+        update_query,
+        params=(hashed_password, user['id'])
+    )
+    
+    return {
+        "message": "Password reset successfully. You can now log in with your new password."
+    }
 
 # ============================================
 # LOG ENDPOINTS
@@ -628,6 +739,7 @@ def get_analysis(current_user: dict = Depends(get_current_user)):
         WHERE user_id = %s
         ORDER BY log_date
     """
+
     logs = execute_query(query, params=(user_id,), fetch_all=True)
     
     if not logs:
