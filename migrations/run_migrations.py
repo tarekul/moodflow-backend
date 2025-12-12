@@ -1,6 +1,10 @@
-import os
 import psycopg2
 from pathlib import Path
+import sys
+import os
+
+sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+from config import settings
 
 # Database configuration
 LOCAL_DB_CONFIG = {
@@ -14,9 +18,9 @@ LOCAL_DB_CONFIG = {
 def get_connection():
     """
     Connect to PostgreSQL database.
-    Prioritizes DATABASE_URL (Neon/Render), falls back to LOCAL_DB_CONFIG.
+    Prioritizes DATABASE_URL (Neon), falls back to LOCAL_DB_CONFIG.
     """
-    db_url = os.getenv("DATABASE_URL")
+    db_url = settings.DATABASE_URL
     
     if db_url:
         # Connect to Remote (Neon)
@@ -30,7 +34,7 @@ def create_database_if_not_exists():
     Create moodflow database if it doesn't exist.
     SKIPS THIS STEP if we are using a remote DATABASE_URL.
     """
-    if os.getenv("DATABASE_URL"):
+    if settings.DATABASE_URL:
         print("☁️  Detected remote database URL. Skipping DB creation check.")
         return
         

@@ -1,4 +1,6 @@
 from fastapi import FastAPI, HTTPException, Depends, status
+from google.oauth2 import id_token
+from google.auth.transport import requests as google_requests
 from pydantic import BaseModel, EmailStr
 from typing import List, Optional
 import sys
@@ -14,6 +16,8 @@ from utils.email import send_password_reset_email, generate_reset_token
 from utils.database import execute_query, get_db, get_user_by_email
 from utils.auth import (hash_password, verify_password, create_access_token, get_current_user_email)
 from utils.analysis import analyze_user_data
+
+GOOGLE_CLIENT_ID = "899157555176-dj3rrj6adsv2l1vr1oskn4bklbquho6j.apps.googleusercontent.com"
 
 def get_current_user(current_user_email: str = Depends(get_current_user_email)):
     """
@@ -111,6 +115,9 @@ class ForgotPasswordRequest(BaseModel):
 class ResetPasswordRequest(BaseModel):
     token: str
     new_password: str
+    
+class GoogleAuthRequest(BaseModel):
+    token: str
 
 # ============================================
 # ENDPOINTS
@@ -232,6 +239,58 @@ def login(form_data: OAuth2PasswordRequestForm = Depends()):
     # Create access token
     access_token = create_access_token(data={"sub": user['email']})
     return {"access_token": access_token, "token_type": "bearer"}
+
+@app.post("/auth/google")
+def google_auth(request: GoogleAuthRequest):
+    try:
+        # 1. Verify the token with Google
+        idinfo = id_token.verify_oauth2_token(
+            request.token, 
+            google_requests.Request(), 
+            GOOGLE_CLIENT_ID
+        )
+
+        # 2. Extract user info
+        email = idinfo['email']
+        google_id = idinfo['sub'] # Unique Google ID
+
+        # 3. Check if user exists in YOUR database
+        query = "SELECT * FROM users WHERE email = %s"
+        user = execute_query(query, params=(email,), fetch_one=True)
+
+        if not user:
+            # 4a. Create new user if they don't exist (Sign Up)
+            insert_query = """
+                INSERT INTO users (email, google_id, created_at) 
+                VALUES (%s, %s, NOW()) RETURNING id
+            """
+            user_id = execute_query(insert_query, params=(email, google_id), fetch_one=True)['id']
+            
+            # Fetch the new user object
+            user = {'id': user_id, 'email': email, 'google_id': google_id}
+        else:
+            # 4b. Optional: Update google_id if linking accounts
+            if not user.get('google_id'):
+                execute_query("UPDATE users SET google_id = %s WHERE id = %s", (google_id, user['id']))
+
+        # 5. Generate YOUR JWT token (same as normal login)
+        access_token = create_access_token(data={"sub": user['email']})
+        
+        return {
+            "access_token": access_token, 
+            "token_type": "bearer",
+            "user": {
+                "id": user['id'],
+                "email": user['email'],
+                "google_id": user.get('google_id')
+            }
+        }
+
+    except ValueError:
+        raise HTTPException(status_code=400, detail="Invalid Google token")
+    except Exception as e:
+        print(f"Google Auth Error: {e}")
+        raise HTTPException(status_code=500, detail="Authentication failed")
 
 @app.post("/change-password")
 def change_password(
