@@ -36,7 +36,7 @@ app = FastAPI(
 
 origins = [
     "http://localhost:5174",  # Your local Vite dev server
-    "https://melodic-profiterole-d6734e.netlify.app"  # Your deployed Netlify site
+    settings.FRONTEND_URL  # Your deployed Netlify site
 ]
 
 app.add_middleware(
