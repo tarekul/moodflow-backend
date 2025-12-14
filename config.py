@@ -6,6 +6,7 @@ class Settings(BaseSettings):
     MAILJET_API_KEY: str
     MAILJET_SECRET_KEY: str
     MAILJET_SENDER_EMAIL: str
+    GOOGLE_CLIENT_ID: str
     FRONTEND_URL: str = "http://localhost:5174"
 
     class Config:

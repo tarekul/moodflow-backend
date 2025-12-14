@@ -11,13 +11,12 @@ from fastapi.middleware.cors import CORSMiddleware
 
 # Add parent directory to path so we can import utils
 sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+from config import settings
 
 from utils.email import send_password_reset_email, generate_reset_token
 from utils.database import execute_query, get_db, get_user_by_email
 from utils.auth import (hash_password, verify_password, create_access_token, get_current_user_email)
 from utils.analysis import analyze_user_data
-
-GOOGLE_CLIENT_ID = "899157555176-dj3rrj6adsv2l1vr1oskn4bklbquho6j.apps.googleusercontent.com"
 
 def get_current_user(current_user_email: str = Depends(get_current_user_email)):
     """
@@ -247,7 +246,7 @@ def google_auth(request: GoogleAuthRequest):
         idinfo = id_token.verify_oauth2_token(
             request.token, 
             google_requests.Request(), 
-            GOOGLE_CLIENT_ID
+            settings.GOOGLE_CLIENT_ID
         )
 
         # 2. Extract user info
