@@ -433,61 +433,78 @@ def find_optimal_factor_zone(df, factor_col, factor_name):
     return f"Your peak productivity happens at {best_bin} {unit} of {factor_name}."
 
 def predict_today_productivity(df: pd.DataFrame):
-    """
-    Predicts today's productivity based on sleep and last mood
-    """
     
-    # 1. Prepare Data: Sort by date
+    # 1. Ensure Dates are proper Datetime objects and Sorted
+    df['log_date'] = pd.to_datetime(df['log_date'])
     df = df.sort_values('log_date')
     
-    # 2. Create Previous Day Mood
-    df['previous_day_mood'] = df['mood'].shift(1)
+    # 2. Calculate the "Time Gap" between rows
+    # This creates a column representing how many days passed since the last log
+    df['days_since_last_log'] = df['log_date'].diff().dt.days
     
-    # Get the very last log entry from the DB
+    # 3. Create 'prev_mood' SAFELY
+    df['prev_mood'] = df['mood'].shift(1)
+    
+    # This ensures we only use "Yesterday's Mood" if it was actually yesterday
+    df.loc[df['days_since_last_log'] != 1, 'prev_mood'] = np.nan
+    
     if df.empty: return None
     current_log = df.iloc[-1]
     
-    # Check 1: Is the last log actually from TODAY?
-    # Ensure formats match (date object comparison)
-    today = date.today()
-    if current_log['log_date'].date() != today:
-        return None  # User hasn't started a log for today yet
-        
-    # Check 2: Did they log Sleep Hours? (And is it not None/NaN)
-    if pd.isna(current_log['sleep_hours']) or current_log['sleep_hours'] == 0:
+    # Check if current log is today
+    if current_log['log_date'].date() != date.today():
         return None
+
+    # Check for Morning Data
+    if pd.isna(current_log['sleep_hours']) or pd.isna(current_log['mood']):
+        return None 
+    
+    # It will be False if the user skipped yesterday.
+    has_consecutive_history = not pd.isna(current_log['prev_mood'])
+    
+    if has_consecutive_history:
+        features = ['sleep_hours', 'mood', 'prev_mood']
         
-    # Check 3: Do we have "Yesterday's Mood"?
-    # If this is the very first day, shift(1) will be NaN
-    if pd.isna(current_log['previous_day_mood']):
-        return None  # Cannot predict without history
+        # We only train on rows where 'days_since_last_log' == 1
+        model_df = df[df['days_since_last_log'] == 1][features + ['productivity']].dropna()
+        
+        if len(model_df) < 5:
+             pass 
+        else:
+            X = model_df[features].values
+            Y = model_df['productivity'].values
+            X = np.c_[X, np.ones(X.shape[0])]
+            
+            weights, _, _, _ = np.linalg.lstsq(X, Y, rcond=None)
+            
+            prediction = (weights[0] * current_log['sleep_hours'] + 
+                          weights[1] * current_log['mood'] + 
+                          weights[2] * current_log['prev_mood'] + 
+                          weights[3])
+                          
+            return format_prediction(prediction)
     
-    # 3. Drop rows with missing data (e.g., the first day has no "yesterday")
-    model_df = df[['previous_day_mood', 'sleep_hours', 'productivity']].dropna()
+    features = ['sleep_hours', 'mood']
+    model_df = df[features + ['productivity']].dropna()
     
-    # Need at least ~10 days of continuous data for a decent prediction
-    if len(model_df) < 10:
-        return "Keep logging! We need more continuous days to predict your productivity."
-    
-    # 4. Prepare Matrices for Linear Regression (y = mx + c)
+    if len(model_df) < 5:
+        return "Keep logging! We need more data."
+
+    X = model_df[features].values
     Y = model_df['productivity'].values
-    X = model_df[['sleep_hours', 'previous_day_mood']].values
-    # Add column of ones for intercept
     X = np.c_[X, np.ones(X.shape[0])]
     
-    # 5. Train Model (Least Squares)
-    # weights[0] = sleep weight, weights[1] = mood weight, weights[2] = bias
     weights, _, _, _ = np.linalg.lstsq(X, Y, rcond=None)
     
-    # 6. Make Prediction for "Today"
-    prediction = weights[0] * current_log['sleep_hours'] + weights[1] * current_log['previous_day_mood'] + weights[2]
-    
-    predicted_score = max(1, min(10, round(prediction, 1)))
-    
-    # Clamp result between 1-10
-    predicted_score = max(1, min(10, round(predicted_score, 1)))
-    
-    return f"Based on your sleep and yesterday's mood, today looks like a {predicted_score}/10 productivity day."
+    prediction = (weights[0] * current_log['sleep_hours'] + 
+                  weights[1] * current_log['mood'] + 
+                  weights[2])
+                  
+    return format_prediction(prediction)
+
+def format_prediction(val):
+    score = max(1, min(10, round(val, 1)))
+    return f"Based on your patterns, today looks like a {score}/10 productivity day."
     
 def analyze_user_data(logs: List[Dict], user_id: int) -> Dict:
     """
