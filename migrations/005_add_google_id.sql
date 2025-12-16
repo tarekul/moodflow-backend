@@ -1,5 +1,5 @@
 -- Migration: Add Google ID Column and drop not null from password_hash
--- Created: 2024-12-11
+-- Created: 2025-12-11
 -- Description: Add google_id to users table
 
 -- Add google_id column

@@ -1,5 +1,5 @@
 -- Migration: Add Password Reset Columns
--- Created: 2024-12-11
+-- Created: 2025-12-11
 -- Description: Add reset_token and reset_token_expires_at to users table
 
 -- Add password reset columns

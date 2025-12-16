@@ -53,11 +53,15 @@ app.add_middleware(
 
 class UserResponse(BaseModel):
     id: int
+    first_name: Optional[str] = None
+    last_name: Optional[str] = None
     email: str
     tier: str
     created_at: str
 
 class UserCreate(BaseModel):
+    first_name: str
+    last_name: str
     email: EmailStr
     password: str
 
@@ -190,13 +194,13 @@ def create_user(user: UserCreate):
     
     # Insert new user
     insert_query = """
-        INSERT INTO users (email, password_hash, tier)
-        VALUES (%s, %s, 'free')
-        RETURNING id, email, tier, created_at::text
+        INSERT INTO users (first_name, last_name, email, password_hash, tier)
+        VALUES (%s, %s, %s, %s, 'free')
+        RETURNING id, first_name, last_name, email, tier, created_at::text
     """
     new_user = execute_query(
         insert_query,
-        params=(user.email, hashed_password),
+        params=(user.first_name, user.last_name, user.email, hashed_password),
         fetch_one=True
     )
     
@@ -251,6 +255,8 @@ def google_auth(request: GoogleAuthRequest):
 
         # 2. Extract user info
         email = idinfo['email']
+        first_name = idinfo['given_name']
+        last_name = idinfo['family_name']
         google_id = idinfo['sub'] # Unique Google ID
 
         # 3. Check if user exists in YOUR database
@@ -260,10 +266,10 @@ def google_auth(request: GoogleAuthRequest):
         if not user:
             # 4a. Create new user if they don't exist (Sign Up)
             insert_query = """
-                INSERT INTO users (email, google_id, created_at) 
-                VALUES (%s, %s, NOW()) RETURNING id
+                INSERT INTO users (first_name, last_name, email, google_id, created_at) 
+                VALUES (%s, %s, %s, %s, NOW()) RETURNING id
             """
-            user_id = execute_query(insert_query, params=(email, google_id), fetch_one=True)['id']
+            user_id = execute_query(insert_query, params=(first_name, last_name, email, google_id), fetch_one=True)['id']
             
             # Fetch the new user object
             user = {'id': user_id, 'email': email, 'google_id': google_id}
@@ -281,7 +287,9 @@ def google_auth(request: GoogleAuthRequest):
             "user": {
                 "id": user['id'],
                 "email": user['email'],
-                "google_id": user.get('google_id')
+                "google_id": user.get('google_id'),
+                "first_name": user.get('first_name'),
+                "last_name": user.get('last_name')
             }
         }
 
@@ -325,7 +333,7 @@ def get_current_user(current_user_email: str = Depends(get_current_user_email)):
     
     This endpoint requires authentication (JWT token)
     """
-    query = "SELECT id, email, tier, created_at::text FROM users WHERE email = %s"
+    query = "SELECT id, first_name, last_name, email, tier, created_at::text FROM users WHERE email = %s"
     user = execute_query(query, params=(current_user_email,), fetch_one=True)
     
     if not user:
