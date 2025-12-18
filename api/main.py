@@ -36,6 +36,7 @@ app = FastAPI(
 
 origins = [
     "http://localhost:5174",  # local Vite dev server
+    "http://192.168.1.8:5174",  # local Vite dev server
     settings.FRONTEND_URL  # deployed Netlify site
 ]
 
