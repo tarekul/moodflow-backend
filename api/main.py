@@ -98,8 +98,10 @@ class DailyLogResponse(BaseModel):
     user_id: int
     log_date: date
     mood: Optional[float] = None
+    screen_time_hours: Optional[float] = None
     productivity: Optional[float] = None
     sleep_hours: float
+    
     stress: Optional[float] = None
     physical_activity_min: Optional[int] = None
     created_at: str
