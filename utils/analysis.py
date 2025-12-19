@@ -156,13 +156,47 @@ def get_top_recommendation(correlations: List[Dict]) -> Dict:
         return None
     
     top = correlations[0]
+    factor_name = top['factor']
+    
+    # 1. Define Standard "Improvement Steps" for each data type
+    # This maps each factor to:
+    # - step: How much to change (e.g., 1 hour, 30 mins)
+    # - unit: The label (hours, points)
+    # - direction: Text for the UI (Increase vs Reduce)
+    
+    factor_meta = {
+        "Mood": {"step": 2, "unit": "points", "direction": "Increasing"},
+        "Stress": {"step": 2, "unit": "points", "direction": "Lowering"},
+        "Sleep Hours": {"step": 1, "unit": "hour", "direction": "Increasing"},
+        "Screen Time Hours": {"step": 1, "unit": "hour", "direction": "Reducing"},
+        "Physical Activity Min": {"step": 30, "unit": "minutes", "direction": "Increasing"},
+        "Diet Quality": {"step": 1, "unit": "level", "direction": "Improving"},
+        "Morning Workout": {"step": 1, "unit": "session", "direction": "Prioritizing"},
+        "Afternoon Workout": {"step": 1, "unit": "session", "direction": "Prioritizing"},
+        "Evening Workout": {"step": 1, "unit": "session", "direction": "Prioritizing"},
+    }
+    
+    # Default fallback
+    meta = factor_meta.get(factor_name, {"step": 2, "unit": "points", "direction": "Improving"})
+    
+    # 2. Logic for "Drainers" (Negative Correlation)
+    # If something hurts productivity (e.g. Stress), we want to REDUCE it.
+    # Note: We hardcoded specific directions above (e.g. Stress -> Lowering), 
+    # but for unknown factors, we check the correlation sign.
+    if factor_name not in factor_meta:
+        if top['correlation'] < 0:
+            meta['direction'] = "Reducing"
     
     return {
-        "factor": top['factor'],
+        "factor": factor_name,
         "correlation": top['correlation'],
         "strength": top['strength'],
-        "potential_gain": abs(top['correlation']) * 2,  # Potential productivity boost
-        "is_booster": top['is_booster']
+        "potential_gain": abs(top['correlation']) * 2,
+        "is_booster": top['is_booster'],
+        # New Dynamic Fields
+        "action_label": meta['direction'],
+        "improvement_step": meta['step'],
+        "improvement_unit": meta['unit']
     }
 
 def create_action_plan(correlations: List[Dict]) -> List[Dict]:
@@ -359,7 +393,6 @@ def calculate_general_lift(df: pd.DataFrame, factor_col, factor_name, is_booster
     # 1. Determine Threshold
     threshold = clean_df[factor_col].median()
     
-    # FIX: If median is 0 (common for exercise), default to a meaningful minimum
     if threshold == 0:
         if 'min' in factor_col: # Physical Activity
             threshold = 15.0 # Anything > 15 mins counts as "Active"
@@ -652,6 +685,20 @@ def analyze_user_data(logs: List[Dict], user_id: int) -> Dict:
                 
         lift_msg = calculate_general_lift(df, col_name, factor['factor'], factor['is_booster'])
         if lift_msg:
+            if "Workout" in factor['factor'] and factor['is_booster']:
+                is_activity_drainer = any(d['factor'] == 'Physical Activity Min' for d in drainers)
+                
+                if is_activity_drainer:
+                    clean_lift_msg = lift_msg.replace("🚀 ", "").replace("📈 ", "")
+                    time_of_day = factor['factor'].replace(" Workout", "")
+                    
+                    lift_msg = (
+                        f"🚀 **Timing Unlock:** While long workouts can sometimes drain you, "
+                        f"**{time_of_day} Workouts** are your superpower. {clean_lift_msg}"
+                    )
+                    
+                    drainers = [d for d in drainers if d['factor'] != 'Physical Activity Min']
+            
             smart_insights.append({
                 "type": "impact",
                 "message": lift_msg,
