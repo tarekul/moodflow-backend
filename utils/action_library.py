@@ -20,7 +20,7 @@ action_library = {
                 }
             ]
         },
-        "Sleep Hours": {
+        "Sleep": {
             "emoji": "😴",
             "strategies": [
                 {
@@ -60,7 +60,7 @@ action_library = {
                 }
             ]
         },
-        "Physical Activity Min": {
+        "Physical Activity": {
             "emoji": "🏃",
             "strategies": [
                 {
@@ -80,7 +80,7 @@ action_library = {
                 }
             ]
         },
-        "Screen Time Hours": {
+        "Screen Time": {
             "emoji": "📱",
             "strategies": [
                 {
@@ -100,7 +100,7 @@ action_library = {
                 }
             ]
         },
-        "Social Interaction Hours": {
+        "Social Interaction": {
             "emoji": "💬",
             "strategies": [
                 {
@@ -120,7 +120,7 @@ action_library = {
                 }
             ]
         },
-        "Diet Quality Score": {
+        "Diet Quality": {
             "emoji": "🍎",
             "strategies": [
                 {

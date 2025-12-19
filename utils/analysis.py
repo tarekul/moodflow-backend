@@ -41,7 +41,6 @@ def calculate_correlations(df: pd.DataFrame) -> List[Dict]:
             corr = df['productivity'].corr(df[factor])
             
             if not np.isnan(corr):
-                # Determine strength
                 abs_corr = abs(corr)
                 if abs_corr >= 0.7:
                     strength = "STRONG"
@@ -50,14 +49,16 @@ def calculate_correlations(df: pd.DataFrame) -> List[Dict]:
                 else:
                     strength = "WEAK"
                 
+                clean_name = factor.replace('_', ' ').title().replace(' Hours', '').replace(' Min', '')
+
                 correlations.append({
-                    "factor": factor.replace('_', ' ').title(),
+                    "factor": clean_name,
+                    "original_col": factor, 
                     "correlation": round(corr, 2),
                     "is_booster": bool(corr > 0),
                     "strength": strength
                 })
     
-    # Sort by absolute correlation (strongest first)
     correlations.sort(key=lambda x: abs(x['correlation']), reverse=True)
     
     timing_factors = ['Morning Workout', 'Afternoon Workout', 'Evening Workout']
@@ -65,7 +66,6 @@ def calculate_correlations(df: pd.DataFrame) -> List[Dict]:
     seen_workout = False
 
     for factor in correlations:
-        # If it's a workout timing factor and we've already seen one, skip it
         if factor['factor'] in timing_factors:
             if seen_workout or not factor['is_booster']: continue
             seen_workout = True
@@ -158,12 +158,6 @@ def get_top_recommendation(correlations: List[Dict]) -> Dict:
     top = correlations[0]
     factor_name = top['factor']
     
-    # 1. Define Standard "Improvement Steps" for each data type
-    # This maps each factor to:
-    # - step: How much to change (e.g., 1 hour, 30 mins)
-    # - unit: The label (hours, points)
-    # - direction: Text for the UI (Increase vs Reduce)
-    
     factor_meta = {
         "Mood": {"step": 2, "unit": "points", "direction": "Increasing"},
         "Stress": {"step": 2, "unit": "points", "direction": "Lowering"},
@@ -176,13 +170,8 @@ def get_top_recommendation(correlations: List[Dict]) -> Dict:
         "Evening Workout": {"step": 1, "unit": "session", "direction": "Prioritizing"},
     }
     
-    # Default fallback
     meta = factor_meta.get(factor_name, {"step": 2, "unit": "points", "direction": "Improving"})
     
-    # 2. Logic for "Drainers" (Negative Correlation)
-    # If something hurts productivity (e.g. Stress), we want to REDUCE it.
-    # Note: We hardcoded specific directions above (e.g. Stress -> Lowering), 
-    # but for unknown factors, we check the correlation sign.
     if factor_name not in factor_meta:
         if top['correlation'] < 0:
             meta['direction'] = "Reducing"
@@ -193,7 +182,6 @@ def get_top_recommendation(correlations: List[Dict]) -> Dict:
         "strength": top['strength'],
         "potential_gain": abs(top['correlation']) * 2,
         "is_booster": top['is_booster'],
-        # New Dynamic Fields
         "action_label": meta['direction'],
         "improvement_step": meta['step'],
         "improvement_unit": meta['unit']
@@ -209,7 +197,6 @@ def create_action_plan(correlations: List[Dict]) -> List[Dict]:
     
     top_3_factors = correlations[:3]
     
-    # Add top 3 factors to action plan
     for correlation in top_3_factors:
         factor = correlation['factor']
         if factor in action_library:
@@ -321,7 +308,7 @@ def compare_to_population(
     comparisons = []
     
     for user_corr in user_correlations:
-        factor = user_corr['factor']
+        factor = user_corr['original_col']
         user_value = user_corr['correlation']
         
         # Get population average for this factor
@@ -395,10 +382,10 @@ def calculate_general_lift(df: pd.DataFrame, factor_col, factor_name, is_booster
     
     if threshold == 0:
         if 'min' in factor_col: # Physical Activity
-            threshold = 15.0 # Anything > 15 mins counts as "Active"
+            threshold = 15.0 
         elif 'hours' in factor_col: # Screen Time / Social
             threshold = 1.0 
-        elif 'workout' in factor_name.lower(): # FIX 3: Check workout in lower case to be safe
+        elif 'workout' in factor_name.lower(): 
             threshold = 0.5
             
     # 2. Split groups
@@ -406,7 +393,6 @@ def calculate_general_lift(df: pd.DataFrame, factor_col, factor_name, is_booster
         high_group = clean_df[clean_df[factor_col] >= threshold]
         low_group = clean_df[clean_df[factor_col] < threshold]
         
-        # Dynamically describe the groups for clearer insights
         if factor_name == "Morning Workout":
             group_desc = "you workout in the morning"
         elif factor_name == "Afternoon Workout":
@@ -416,11 +402,10 @@ def calculate_general_lift(df: pd.DataFrame, factor_col, factor_name, is_booster
         else:
             group_desc = f"{factor_name} is high (> {int(threshold)})"
     else:
-        # For drainers, we compare "Good State" (Low) vs "Bad State" (High)
+        # For drainers
         high_group = clean_df[clean_df[factor_col] < threshold]
         low_group = clean_df[clean_df[factor_col] >= threshold]
         
-        # Custom text for when avoiding the activity is better
         if factor_name == "Morning Workout":
             group_desc = "you don't workout in the morning"
         elif factor_name == "Afternoon Workout":
@@ -430,7 +415,7 @@ def calculate_general_lift(df: pd.DataFrame, factor_col, factor_name, is_booster
         else:
             group_desc = f"{factor_name} is low (< {int(threshold)})"
 
-    if len(high_group) < 2 or len(low_group) < 2: return None # Lowered to 2 for small datasets
+    if len(high_group) < 2 or len(low_group) < 2: return None 
     
     # 3. Calculate Lift
     avg_high = high_group['productivity'].mean()
@@ -439,31 +424,34 @@ def calculate_general_lift(df: pd.DataFrame, factor_col, factor_name, is_booster
     if avg_low == 0: return None
     
     lift = ((avg_high - avg_low) / avg_low) * 100
-    diff = avg_high - avg_low
+    
+    # --- CHANGED: Define a clear "Score Label" instead of just "pts" ---
+    # Example Output: "(Avg 9.0 vs 5.0)"
+    score_label = f"(Avg {avg_high:.1f} vs {avg_low:.1f})"
     
     # 4. Generate Insight
     # Handle "Massive" Lift (> 100%)
     if lift >= 100:
-        return f"🚀 You are **twice as productive** (+{diff:.1f} pts) when {group_desc}."
+        return f"🚀 You are **twice as productive** {score_label} when {group_desc}."
         
     # Handle "Big" Lift (> 50%)
     elif lift > 50:
-        return f"🚀 You are **{int(lift)}% more productive** (+{diff:.1f} pts) when {group_desc}."
+        return f"🚀 You are **{int(lift)}% more productive** {score_label} when {group_desc}."
         
     # Handle "Moderate" Lift (> 5%)
     elif lift > 5:
-        return f"📈 You get a **{int(lift)}% boost** (+{diff:.1f} pts) when {group_desc}."
+        return f"📈 You get a **{int(lift)}% boost** {score_label} when {group_desc}."
     
     elif lift < -50:
-        return f"⚠️ **Critical Drain:** Your productivity is **cut in half** (-{abs(diff):.1f} pts) when {group_desc}."
+        return f"⚠️ **Critical Drain:** Your productivity is **cut in half** {score_label} when {group_desc}."
         
     # "Big Drop" (20% - 50% loss)
     elif lift < -20:
-        return f"⚠️ You are **{abs(int(lift))}% less productive** (-{abs(diff):.1f} pts) when {group_desc}."
+        return f"⚠️ You are **{abs(int(lift))}% less productive** {score_label} when {group_desc}."
         
     # "Moderate Drop" (5% - 20% loss)
     elif lift < -5:
-        return f"📉 You experience a **{abs(int(lift))}% dip** in productivity (-{abs(diff):.1f} pts) when {group_desc}."
+        return f"📉 You experience a **{abs(int(lift))}% dip** in productivity {score_label} when {group_desc}."
     
     return None
 
