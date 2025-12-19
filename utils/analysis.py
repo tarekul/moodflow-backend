@@ -6,6 +6,7 @@ from utils.action_library import action_library
 from utils.database import execute_query
 import math
 import random
+import hashlib
 
 def round_floats(obj):
     """
@@ -187,20 +188,30 @@ def get_top_recommendation(correlations: List[Dict]) -> Dict:
         "improvement_unit": meta['unit']
     }
 
-def create_action_plan(correlations: List[Dict]) -> List[Dict]:
+def create_action_plan(correlations: List[Dict], user_id: int) -> List[Dict]:
     """
     Create actionable plan based on correlations
     (Phase 4 code!)
     """
     action_plan = []
     priority = 1
-    
     top_3_factors = correlations[:3]
+    
+    # Get today's date string (e.g., "2023-10-27")
+    today_str = date.today().strftime('%Y-%m-%d')
     
     for correlation in top_3_factors:
         factor = correlation['factor']
         if factor in action_library:
-            strategy = random.choice(action_library[factor]["strategies"])
+            strategies = action_library[factor]["strategies"]
+            
+            seed_str = f"{user_id}-{factor}-{today_str}"
+            
+            seed_int = int(hashlib.sha256(seed_str.encode('utf-8')).hexdigest(), 16)
+            random.seed(seed_int)
+            
+            strategy = random.choice(strategies)
+            
             action_plan.append({
                 "priority": priority,
                 "factor": factor,
@@ -623,7 +634,7 @@ def analyze_user_data(logs: List[Dict], user_id: int) -> Dict:
     top_rec = get_top_recommendation(correlations)
     
     # Action plan
-    action_plan = create_action_plan(correlations)
+    action_plan = create_action_plan(correlations, user_id)
     
     # Summary stats
     summary = {
