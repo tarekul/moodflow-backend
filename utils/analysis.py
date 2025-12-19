@@ -657,7 +657,7 @@ def analyze_user_data(logs: List[Dict], user_id: int) -> Dict:
     top_factors = correlations[:3]
     
     for factor in top_factors:
-        col_name = factor['factor'].lower().replace(' ', '_')
+        col_name = factor.get('original_col', factor['factor'].lower().replace(' ', '_'))
         
         # Try to find optimal zone
         if factor['factor'] not in ["Mood", "Diet Quality", "Social Interaction"]:
