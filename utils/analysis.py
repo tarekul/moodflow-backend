@@ -14,7 +14,7 @@ def round_floats(obj):
     """
     if isinstance(obj, float):
         if math.isnan(obj) or math.isinf(obj):
-            return None # JSON standard uses null, not NaN
+            return None 
         return round(obj, 2)
     elif isinstance(obj, dict):
         return {k: round_floats(v) for k, v in obj.items()}
@@ -27,9 +27,11 @@ def calculate_correlations(df: pd.DataFrame) -> List[Dict]:
     Calculate correlations between productivity and other factors
     (Phase 2 code!)
     """
+    
     factors = [
         'mood', 'sleep_hours', 'stress', 
-        'physical_activity_min', 'screen_time_hours'
+        'physical_activity_min', 'morning_workout', 
+        'afternoon_workout', 'evening_workout', 'screen_time_hours'
     ]
     
     correlations = []
@@ -58,7 +60,19 @@ def calculate_correlations(df: pd.DataFrame) -> List[Dict]:
     # Sort by absolute correlation (strongest first)
     correlations.sort(key=lambda x: abs(x['correlation']), reverse=True)
     
-    return correlations
+    timing_factors = ['Morning Workout', 'Afternoon Workout', 'Evening Workout']
+    selected_factors = []
+    seen_workout = False
+
+    for factor in correlations:
+        # If it's a workout timing factor and we've already seen one, skip it
+        if factor['factor'] in timing_factors:
+            if seen_workout or not factor['is_booster']: continue
+            seen_workout = True
+            
+        selected_factors.append(factor)
+        
+    return selected_factors
 
 def engineer_features(df: pd.DataFrame) -> pd.DataFrame:
     """
@@ -66,23 +80,43 @@ def engineer_features(df: pd.DataFrame) -> pd.DataFrame:
     (Phase 3 code!)
     """
     # Sleep Deficit
-    df['Sleep_Deficit'] = 8 - df['sleep_hours']
+    df['sleep_deficit'] = 8 - df['sleep_hours']
     
     # Is Weekend
     df['log_date'] = pd.to_datetime(df['log_date'])
-    df['Is_Weekend'] = df['log_date'].dt.day_name().isin(['Saturday', 'Sunday'])
+    df['is_weekend'] = df['log_date'].dt.day_name().isin(['Saturday', 'Sunday'])
     
     # Is Active
-    df['Is_Active'] = df['physical_activity_min'] >= 30
+    df['is_active'] = df['physical_activity_min'] >= 30
+    
+    if 'activity_time' in df.columns:
+        # 1. Morning Workout
+        df['morning_workout'] = (
+            (df['physical_activity_min'] >= 22) & 
+            (df['activity_time'] == 'Morning')
+        ).astype(int)
+
+        # 2. Afternoon Workout
+        df['afternoon_workout'] = (
+            (df['physical_activity_min'] >= 22) & 
+            (df['activity_time'] == 'Afternoon')
+        ).astype(int)
+
+        # 3. Evening Workout
+        df['evening_workout'] = (
+            (df['physical_activity_min'] >= 22) & 
+            (df['activity_time'] == 'Evening')
+        ).astype(int)
+        
     
     # High Screen Time
-    df['High_Screen_Time'] = df['screen_time_hours'] > 6
+    df['high_screen_time'] = df['screen_time_hours'] > 6
     
     # High Mood
-    df['High_Mood'] = df['mood'] >= 8
+    df['high_mood'] = df['mood'] >= 8
     
     # High Productivity
-    df['High_Productivity'] = df['productivity'] >= 8
+    df['high_productivity'] = df['productivity'] >= 8
     
     # Sleep Quality Score (if categorical)
     if 'sleep_quality' in df.columns:
@@ -92,7 +126,7 @@ def engineer_features(df: pd.DataFrame) -> pd.DataFrame:
             'Good': 3,
             'Excellent': 4
         }
-        df['Sleep_Quality_Score'] = df['sleep_quality'].map(sleep_quality_map)
+        df['sleep_quality_score'] = df['sleep_quality'].map(sleep_quality_map)
     
     # Diet Quality Score (if categorical)
     if 'diet_quality' in df.columns:
@@ -101,7 +135,7 @@ def engineer_features(df: pd.DataFrame) -> pd.DataFrame:
             'Average': 2,
             'Good': 3
         }
-        df['Diet_Quality_Score'] = df['diet_quality'].map(diet_quality_map)
+        df['diet_quality_score'] = df['diet_quality'].map(diet_quality_map)
     
     return df
 
@@ -331,18 +365,37 @@ def calculate_general_lift(df: pd.DataFrame, factor_col, factor_name, is_booster
             threshold = 15.0 # Anything > 15 mins counts as "Active"
         elif 'hours' in factor_col: # Screen Time / Social
             threshold = 1.0 
+        elif 'workout' in factor_name.lower(): # FIX 3: Check workout in lower case to be safe
+            threshold = 0.5
             
     # 2. Split groups
     if is_booster:
         high_group = clean_df[clean_df[factor_col] >= threshold]
         low_group = clean_df[clean_df[factor_col] < threshold]
+        
         # Dynamically describe the groups for clearer insights
-        group_desc = f"{factor_name} is high (> {int(threshold)})"
+        if factor_name == "Morning Workout":
+            group_desc = "you workout in the morning"
+        elif factor_name == "Afternoon Workout":
+            group_desc = "you workout in the afternoon"
+        elif factor_name == "Evening Workout":
+            group_desc = "you workout in the evening"
+        else:
+            group_desc = f"{factor_name} is high (> {int(threshold)})"
     else:
         # For drainers, we compare "Good State" (Low) vs "Bad State" (High)
         high_group = clean_df[clean_df[factor_col] < threshold]
         low_group = clean_df[clean_df[factor_col] >= threshold]
-        group_desc = f"{factor_name} is low (< {int(threshold)})"
+        
+        # Custom text for when avoiding the activity is better
+        if factor_name == "Morning Workout":
+            group_desc = "you don't workout in the morning"
+        elif factor_name == "Afternoon Workout":
+            group_desc = "you don't workout in the afternoon"
+        elif factor_name == "Evening Workout":
+            group_desc = "you don't workout in the evening"
+        else:
+            group_desc = f"{factor_name} is low (< {int(threshold)})"
 
     if len(high_group) < 2 or len(low_group) < 2: return None # Lowered to 2 for small datasets
     
