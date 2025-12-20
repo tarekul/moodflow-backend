@@ -80,6 +80,7 @@ class DailyLogCreate(BaseModel):
     social_interaction_hours: Optional[float] = None
     weather: Optional[str] = None
     notes: Optional[str] = None
+    tags: Optional[List[str]] = None
 
 class DailyLogUpdate(BaseModel):
     """Model for updating a log - all fields optional"""
@@ -95,6 +96,7 @@ class DailyLogUpdate(BaseModel):
     social_interaction_hours: Optional[float] = None
     weather: Optional[str] = None
     notes: Optional[str] = None
+    tags: Optional[List[str]] = None
 
 class DailyLogResponse(BaseModel):
     id: int
@@ -108,6 +110,7 @@ class DailyLogResponse(BaseModel):
     physical_activity_min: Optional[int] = None
     activity_time: Optional[str] = None
     created_at: str
+    tags: Optional[List[str]] = None
     
 class Token(BaseModel):
     access_token: str
@@ -571,7 +574,7 @@ def get_log(log_id: int):
     """
     query = """
         SELECT id, user_id, log_date::text, mood, productivity, 
-               sleep_hours, stress, physical_activity_min, activity_time, created_at::text
+               sleep_hours, stress, physical_activity_min, activity_time, tags, created_at::text
         FROM daily_logs 
         WHERE id = %s
     """
@@ -611,11 +614,11 @@ def create_log(log: DailyLogCreate, current_user: dict = Depends(get_current_use
         INSERT INTO daily_logs (
             user_id, log_date, mood, productivity, sleep_hours, stress,
             physical_activity_min, activity_time, screen_time_hours, sleep_quality,
-            diet_quality, social_interaction_hours, weather, notes
+            diet_quality, social_interaction_hours, weather, notes, tags
         )
-        VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
+        VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
         RETURNING id, user_id, log_date::text, mood, productivity,
-                  sleep_hours, stress, physical_activity_min, activity_time, screen_time_hours, created_at::text
+                  sleep_hours, stress, physical_activity_min, activity_time, screen_time_hours, tags, created_at::text
     """
     
     new_log = execute_query(
@@ -624,7 +627,7 @@ def create_log(log: DailyLogCreate, current_user: dict = Depends(get_current_use
             user_id, log.log_date, log.mood, log.productivity,
             log.sleep_hours, log.stress, log.physical_activity_min,
             log.activity_time, log.screen_time_hours, log.sleep_quality, log.diet_quality,
-            log.social_interaction_hours, log.weather, log.notes
+            log.social_interaction_hours, log.weather, log.notes, log.tags
         ),
         fetch_one=True
     )
@@ -700,6 +703,9 @@ def update_log(
     if log.notes is not None:
         update_fields.append("notes = %s")
         params.append(log.notes)
+    if log.tags is not None:
+        update_fields.append("tags = %s")
+        params.append(log.tags)
     
     if not update_fields:
         raise HTTPException(status_code=400, detail="No fields to update")
@@ -711,7 +717,7 @@ def update_log(
         SET {', '.join(update_fields)}
         WHERE id = %s
         RETURNING id, user_id, log_date::text, mood, productivity,
-                  sleep_hours, stress, physical_activity_min, activity_time, screen_time_hours, created_at::text
+                  sleep_hours, stress, physical_activity_min, activity_time, screen_time_hours, tags, created_at::text
     """
     
     updated_log = execute_query(update_query, params=tuple(params), fetch_one=True)
@@ -769,7 +775,7 @@ def get_my_logs(
         SELECT id, user_id, log_date::text, mood, productivity,
                sleep_hours, stress, screen_time_hours,
                physical_activity_min, activity_time, sleep_quality, diet_quality,
-               social_interaction_hours, weather, notes,
+               social_interaction_hours, weather, notes, tags,
                created_at::text
         FROM daily_logs
         WHERE user_id = %s
