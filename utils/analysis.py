@@ -320,7 +320,7 @@ def create_action_plan(correlations: List[Dict], user_id: int, df: pd.DataFrame)
                 "strength": correlation['strength'],
                 "title": strategy["title"],
                 "daily_actions": strategy["actions"],
-                "success_metric": dynamic_metric, # NOW DYNAMIC
+                "success_metric": dynamic_metric, 
                 "potential_impact": abs(correlation['correlation']) * 2
             })
             priority += 1
