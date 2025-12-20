@@ -188,29 +188,129 @@ def get_top_recommendation(correlations: List[Dict]) -> Dict:
         "improvement_unit": meta['unit']
     }
 
-def create_action_plan(correlations: List[Dict], user_id: int) -> List[Dict]:
+def calculate_factor_averages(df: pd.DataFrame) -> Dict[str, float]:
     """
-    Create actionable plan based on correlations
-    (Phase 4 code!)
+    Calculates the average for specific factors, handling non-numeric data gracefully.
+    Returns a dictionary mapped to the "Nice Names" used in the Action Library.
+    """
+    averages = {}
+    
+    # Map DB column names to Action Library keys
+    column_map = {
+        'mood': 'Mood',
+        'sleep_hours': 'Sleep',
+        'stress': 'Stress',
+        'physical_activity_min': 'Physical Activity',
+        'screen_time_hours': 'Screen Time',
+        'diet_quality_score': 'Diet Quality',
+        'social_interaction_hours': 'Social Interaction' 
+    }
+
+    for col, nice_name in column_map.items():
+        if col in df.columns:
+            # force numeric, turning errors to NaN
+            numeric_series = pd.to_numeric(df[col], errors='coerce')
+            mean_val = numeric_series.mean()
+            
+            if not math.isnan(mean_val):
+                averages[nice_name] = float(mean_val)
+            else:
+                averages[nice_name] = 0.0
+                
+    return averages
+
+def generate_smart_goal(factor: str, current_avg: float, template: str) -> str:
+    """
+    Calculates a realistic target based on the user's current average.
+    """
+    target = 0
+    
+    if factor == "Mood":
+        # Aim for +1, max 10
+        target = min(10, round(current_avg + 0.5, 1))
+        # Fallback if average is already high
+        if target < 7: target = 7 
+
+    elif factor == "Sleep":
+        # Aim for +1 hour, max 8
+        target = min(8, round(current_avg + 1.0, 1))
+        if target < 7: target = 7
+
+    elif factor == "Stress":
+        # Aim for -1, min 1
+        target = max(1, round(current_avg - 1.0, 1))
+        if target > 4: target = 4 # Cap "Success" at 4 or lower
+
+    elif factor == "Physical Activity":
+        # Aim for +15 mins
+        target = round(current_avg + 15)
+        if target < 20: target = 20
+        
+    elif factor == "Diet Quality":
+        # Map: 1=Poor, 2=Average, 3=Good
+        current_level = round(current_avg)
+        
+        # Goal: Aim for one level higher, maxing out at 3 (Good)
+        target_level = min(3, current_level + 1)
+        
+        # If they are already "Good" (3), keep it "Good"
+        if target_level < 2: target_level = 2 # Minimum goal "Average"
+        
+        # Convert number back to text for the UI
+        level_map = {1: "Poor", 2: "Average", 3: "Good"}
+        target_str = level_map.get(target_level, "Good")
+        
+        return template.format(target=target_str)
+
+    elif factor == "Screen Time":
+        # Aim for -1 hour, min 2
+        target = max(2.0, round(current_avg - 1.0, 1))
+        
+    elif factor == "Social Interaction":
+        target = 1 # Default baseline
+    
+    # Inject the calculated target into the template
+    # Example: "Sleep {target} hours" -> "Sleep 7.5 hours"
+    return template.format(target=target)
+
+def create_action_plan(correlations: List[Dict], user_id: int, df: pd.DataFrame) -> List[Dict]:
+    """
+    Create actionable plan based on correlations with DYNAMIC metrics
     """
     action_plan = []
     priority = 1
     top_3_factors = correlations[:3]
     
-    # Get today's date string (e.g., "2023-10-27")
+    # 1. Calculate User's Actual Averages
+    user_averages = calculate_factor_averages(df)
+    
+    # Get today's date string for seeding
     today_str = date.today().strftime('%Y-%m-%d')
     
     for correlation in top_3_factors:
         factor = correlation['factor']
+
         if factor in action_library:
             strategies = action_library[factor]["strategies"]
             
+            # Deterministic Randomness (Rotates daily, stable for 24h)
             seed_str = f"{user_id}-{factor}-{today_str}"
-            
             seed_int = int(hashlib.sha256(seed_str.encode('utf-8')).hexdigest(), 16)
             random.seed(seed_int)
             
             strategy = random.choice(strategies)
+            
+            # 2. Generate Dynamic Metric String
+            # Get user's average for this factor (default to 0 if missing)
+            current_avg = user_averages.get(factor, 0)
+            
+            # Inject smart numbers into the text
+            # e.g. "Screen time < {target} hours" becomes "Screen time < 3.5 hours"
+            dynamic_metric = generate_smart_goal(
+                factor, 
+                current_avg, 
+                strategy["metric_template"]
+            )
             
             action_plan.append({
                 "priority": priority,
@@ -220,7 +320,7 @@ def create_action_plan(correlations: List[Dict], user_id: int) -> List[Dict]:
                 "strength": correlation['strength'],
                 "title": strategy["title"],
                 "daily_actions": strategy["actions"],
-                "success_metric": strategy["metric"],
+                "success_metric": dynamic_metric, # NOW DYNAMIC
                 "potential_impact": abs(correlation['correlation']) * 2
             })
             priority += 1
@@ -436,8 +536,6 @@ def calculate_general_lift(df: pd.DataFrame, factor_col, factor_name, is_booster
     
     lift = ((avg_high - avg_low) / avg_low) * 100
     
-    # --- CHANGED: Define a clear "Score Label" instead of just "pts" ---
-    # Example Output: "(Avg 9.0 vs 5.0)"
     score_label = f"(Avg {avg_high:.1f} vs {avg_low:.1f})"
     
     # 4. Generate Insight
@@ -634,7 +732,7 @@ def analyze_user_data(logs: List[Dict], user_id: int) -> Dict:
     top_rec = get_top_recommendation(correlations)
     
     # Action plan
-    action_plan = create_action_plan(correlations, user_id)
+    action_plan = create_action_plan(correlations, user_id, df)
     
     # Summary stats
     summary = {
