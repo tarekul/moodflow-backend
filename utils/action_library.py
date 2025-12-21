@@ -1,6 +1,6 @@
 action_library = {
     "Mood": {
-        "emoji": "😊",
+        "icon": "Smile",  # Changed from emoji
         "strategies": [
             {
                 "title": "Gratitude & Reflection",
@@ -20,7 +20,7 @@ action_library = {
         ]
     },
     "Sleep": {
-        "emoji": "😴",
+        "icon": "Moon",
         "strategies": [
             {
                 "title": "The Routine Reset",
@@ -40,7 +40,7 @@ action_library = {
         ]
     },
     "Stress": {
-        "emoji": "🧘",
+        "icon": "Leaf", # Or 'Zap' if you prefer energy
         "strategies": [
             {
                 "title": "Mindfulness Micro-Doses",
@@ -60,7 +60,7 @@ action_library = {
         ]
     },
     "Physical Activity": {
-        "emoji": "🏃",
+        "icon": "Dumbbell",
         "strategies": [
             {
                 "title": "The Morning Charge",
@@ -80,7 +80,7 @@ action_library = {
         ]
     },
     "Screen Time": {
-        "emoji": "📱",
+        "icon": "Smartphone",
         "strategies": [
             {
                 "title": "Morning Digital Fast",
@@ -100,7 +100,7 @@ action_library = {
         ]
     },
     "Social Interaction": {
-        "emoji": "💬",
+        "icon": "Users",
         "strategies": [
             {
                 "title": "Reach Out",
@@ -120,7 +120,7 @@ action_library = {
         ]
     },
     "Diet Quality": {
-        "emoji": "🍎",
+        "icon": "Apple",
         "strategies": [
             {
                 "title": "Hydration Station",

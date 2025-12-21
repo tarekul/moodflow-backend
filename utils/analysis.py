@@ -316,7 +316,7 @@ def create_action_plan(correlations: List[Dict], user_id: int, df: pd.DataFrame)
             action_plan.append({
                 "priority": priority,
                 "factor": factor,
-                "emoji": action_library[factor]["emoji"],
+                "icon": action_library[factor]["icon"],
                 "correlation": correlation['correlation'],
                 "strength": correlation['strength'],
                 "title": strategy["title"],
