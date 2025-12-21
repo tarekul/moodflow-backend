@@ -7,6 +7,7 @@ from utils.database import execute_query
 import math
 import random
 import hashlib
+from utils.constants import TAG_LABELS, TAG_ADVICE
 
 def round_floats(obj):
     """
@@ -688,6 +689,108 @@ def predict_today_productivity(df: pd.DataFrame):
 def format_prediction(val):
     score = max(1, min(10, round(val, 1)))
     return f"Based on your patterns, today looks like a {score}/10 productivity day."
+
+def analyze_tag_impact(df: pd.DataFrame, baseline_productivity: float):
+    """
+    Analyzes how specific tags impact productivity compared to the baseline.
+    Returns a list of Smart Insight objects.
+    """
+    insights = []
+    
+    # 1. Safety Check: Ensure 'tags' column exists and drop empty rows
+    if 'tags' not in df.columns:
+        return []
+    
+    tagged_df = df.dropna(subset=['tags'])
+    tagged_df = tagged_df[tagged_df['tags'].apply(lambda x: isinstance(x, list) and len(x) > 0)]
+    
+    if tagged_df.empty:
+        return []
+    
+    # 2. Explode the tags
+    # This turns one row like [Date: 12-01, Tags: ['WFH', 'Tired']] 
+    # into two rows: [Date: 12-01, Tag: 'WFH'] and [Date: 12-01, Tag: 'Tired']
+    exploded_df = tagged_df.explode('tags')
+    
+    # 3. Group by Tag
+    tag_stats = exploded_df.groupby('tags')['productivity'].agg(['mean', 'count'])
+    valid_tags = tag_stats[tag_stats['count'] >= 3]
+    
+    if valid_tags.empty:
+        return []
+    
+    # 4. Generate Insights
+    for tag, row in valid_tags.iterrows():
+        avg_prod = row['mean']
+        
+        if baseline_productivity == 0: continue
+        
+        lift = ((avg_prod - baseline_productivity) / baseline_productivity) * 100
+        
+        readable_tag = TAG_LABELS.get(tag, tag)
+        
+        if lift >= 15:
+            # Positive Insight
+            insights.append({
+                "type": "optimization", # Green Card
+                "message": f"⚡ **Context Unlock:** You are **{int(lift)}% more productive** when {readable_tag}.",
+                "priority": 2
+            })
+        elif lift <= -15:
+            # Negative Insight
+            advice = TAG_ADVICE.get(tag, "Try to identify potential distractions.")
+            
+            insights.append({
+                "type": "impact", 
+                "message": f"⚠️ **Context Alert:** Your productivity drops by **{abs(int(lift))}%** when {readable_tag}. {advice}",
+                "priority": 2
+            })
+            
+    return insights
+
+def generate_perfect_day_blueprint(df: pd.DataFrame) -> Dict:
+    """
+    Analyzes the top 10% of days to generate a "Recipe" for success.
+    """
+    # 1. Filter for High Performance Days (Top 10-15%)
+    # We use quantile to find the cutoff score (e.g., productivity > 8.0)
+    cutoff = df['productivity'].quantile(0.85)
+    
+    # If the user is consistently low (e.g. max is 4), take top 25% instead
+    if cutoff < 5:
+        cutoff = df['productivity'].quantile(0.75)
+
+    best_days = df[df['productivity'] >= cutoff]
+    if len(best_days) < 3:
+        return None # Not enough data yet
+    
+    # 2. Calculate the "Perfect Stats"
+    blueprint = {
+        "avg_score": round(best_days['productivity'].mean(), 1),
+        "mood": round(best_days['mood'].mean(), 1),
+        "sleep": round(best_days['sleep_hours'].mean(), 1),
+        "stress_limit": round(best_days['stress'].mean(), 1),
+        "activity": round(best_days['physical_activity_min'].mean()),
+        "screen_limit": round(best_days['screen_time_hours'].mean(), 1),
+        "social_time": round(best_days['social_interaction_hours'].mean(), 1),
+        "social_hours": round(best_days['social_interaction_hours'].mean(), 1)
+    }
+    
+    # 3. Find the "Perfect Context" (Tags)
+    # Count tags that appear in best days
+    if 'tags' in best_days.columns:
+        all_tags = best_days['tags'].explode().dropna()
+        if not all_tags.empty:
+            # Get the single most common tag in high-performance days
+            blueprint['best_context'] = all_tags.mode()[0]
+    
+    # 4. Find "Perfect Workout Time"
+    # Which workout time appears most often in best days?
+    workout_times = best_days['activity_time'].dropna()
+    if not workout_times.empty:
+        blueprint['workout_time'] = workout_times.mode()[0] # e.g., "Morning"
+        
+    return blueprint
     
 def analyze_user_data(logs: List[Dict], user_id: int) -> Dict:
     """
@@ -762,6 +865,9 @@ def analyze_user_data(logs: List[Dict], user_id: int) -> Dict:
             "message": predicted_productivity,
             "priority": 1
         })
+        
+    tag_insights = analyze_tag_impact(df, summary['avg_productivity'])
+    smart_insights.extend(tag_insights)
     
     top_factors = correlations[:3]
     
@@ -801,6 +907,8 @@ def analyze_user_data(logs: List[Dict], user_id: int) -> Dict:
                 "message": lift_msg,
                 "priority": 3
             })
+            
+    perfect_day = generate_perfect_day_blueprint(df)
 
     result = {
         "user_id": user_id,
@@ -815,6 +923,7 @@ def analyze_user_data(logs: List[Dict], user_id: int) -> Dict:
         "drainers": round_floats(drainers),
         "top_recommendation": round_floats(top_rec) if top_rec else None,
         "action_plan": round_floats(action_plan),
+        "perfect_day": round_floats(perfect_day),
         "time_series": time_series,
         "population_comparison": round_floats(population_comparison),
         "population_stats": {
