@@ -1,7 +1,7 @@
 import pandas as pd
 import numpy as np
 from typing import Dict, List, Any, Tuple
-from datetime import datetime, date
+from datetime import datetime, date, timedelta
 from utils.action_library import action_library
 from utils.database import execute_query
 import math
@@ -833,6 +833,80 @@ def count_blueprint_matches(df: pd.DataFrame, blueprint: Dict) -> int:
             match_count += 1
             
     return match_count
+
+def calculate_badges(df: pd.DataFrame, blueprint: Dict) -> List[Dict]:
+    """
+    Calculates badges based on user's data and blueprint.
+    Returns a list of badge objects.
+    """
+    if not blueprint or df.empty:
+        return []
+    
+    badges = []
+    
+    # --- 1. Perfect Day Badge ---
+    perfect_day_count = count_blueprint_matches(df, blueprint)
+    if perfect_day_count > 0: 
+        badges.append({
+            "id": "perfect_day",
+            "count": perfect_day_count, 
+            "label": "Blueprint Days",
+            "icon": "Medal",
+            "color": "indigo" 
+        })
+        
+    # --- 2. The Streak (Hot Streak) ---
+    dates = pd.to_datetime(df['log_date']).dt.date.unique()
+    dates = sorted(dates, reverse=True) # Sort newest first
+    
+    current_streak = 0
+    today = date.today()
+    
+    if len(dates) > 0:
+        if dates[0] == today or dates[0] == (today - timedelta(days=1)):
+            current_streak = 1
+            
+            for i in range(1, len(dates)):
+                if dates[i-1] - dates[i] == timedelta(days=1):
+                    current_streak += 1
+                else:
+                    break
+    
+    # Only add badge if they have a meaningful streak (e.g., 3+)
+    if current_streak >= 3:
+        badges.append({
+            "id": "streak",
+            "count": current_streak,
+            "label": "Day Streak", 
+            "icon": "Flame",
+            "color": "orange"
+        })
+            
+    # --- 3. Diamond (Resilience) ---
+    # Logic: High Stress AND High Productivity
+    diamond_days = df[(df['stress'] >= 7) & (df['productivity'] >= 7)]
+    if len(diamond_days) > 0:
+        badges.append({
+            "id": "diamond",
+            "count": len(diamond_days),
+            "label": "Pressure Performer",
+            "icon": "Gem",
+            "color": "cyan"
+        })
+        
+    # --- 4. Unplugged (Digital Health) ---
+    # Logic: Screen time less than 2 hours
+    unplugged_days = df[(df['screen_time_hours'] < 2.0) & (df['screen_time_hours'].notna())]
+    if len(unplugged_days) > 0:
+        badges.append({
+            "id": "unplugged",
+            "count": len(unplugged_days),
+            "label": "Digital Detox",
+            "icon": "Leaf",
+            "color": "green"
+        })
+    
+    return badges
     
 def analyze_user_data(logs: List[Dict], user_id: int) -> Dict:
     """
@@ -952,9 +1026,7 @@ def analyze_user_data(logs: List[Dict], user_id: int) -> Dict:
             
     perfect_day = generate_perfect_day_blueprint(df)
     
-    blueprint_badges = 0
-    if perfect_day:
-        blueprint_badges = count_blueprint_matches(df, perfect_day)
+    badges = calculate_badges(df, perfect_day)
 
     result = {
         "user_id": user_id,
@@ -970,10 +1042,7 @@ def analyze_user_data(logs: List[Dict], user_id: int) -> Dict:
         "top_recommendation": round_floats(top_rec) if top_rec else None,
         "action_plan": round_floats(action_plan),
         "perfect_day": round_floats(perfect_day),
-        "gamification": {
-            "blueprint_badges": blueprint_badges,
-            "total_logs": len(df)
-        },
+        "gamification": badges,
         "time_series": time_series,
         "population_comparison": round_floats(population_comparison),
         "population_stats": {
