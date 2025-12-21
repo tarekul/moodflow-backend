@@ -791,6 +791,48 @@ def generate_perfect_day_blueprint(df: pd.DataFrame) -> Dict:
         blueprint['workout_time'] = workout_times.mode()[0] # e.g., "Morning"
         
     return blueprint
+
+def count_blueprint_matches(df: pd.DataFrame, blueprint: Dict) -> int:
+    """
+    Counts how many days in the history matched the Perfect Day Blueprint.
+    Reproduces the same logic as the frontend gamification.
+    """
+    if not blueprint or df.empty:
+        return 0
+    
+    match_count = 0
+    
+    # We iterate through every log to check for matches
+    for _, row in df.iterrows():
+        daily_matches = 0
+        
+        # 1. SLEEP: +/- 0.75 hours
+        if abs(row['sleep_hours'] - blueprint['sleep']) <= 0.75:
+            daily_matches += 1
+            
+        # 2. ACTIVITY: >= Target - 10 mins
+        # Handle NaN/None by treating as 0
+        act = row['physical_activity_min'] if pd.notna(row['physical_activity_min']) else 0
+        if act >= (blueprint['activity'] - 10):
+            daily_matches += 1
+            
+        # 3. SCREEN: <= Target + 0.5 hours
+        scr = row['screen_time_hours'] if pd.notna(row['screen_time_hours']) else 0
+        if scr <= (blueprint['screen_limit'] + 0.5):
+            daily_matches += 1
+            
+        # 4. SOCIAL: >= Target - 0.5 hours
+        # Only check if social was part of the blueprint
+        if 'social_hours' in blueprint:
+            soc = row['social_interaction_hours'] if pd.notna(row['social_interaction_hours']) else 0
+            if soc >= (blueprint['social_hours'] - 0.5):
+                daily_matches += 1
+        
+        # THRESHOLD: If they hit 3 out of 4 (or 3/3), it's a match
+        if daily_matches >= 3:
+            match_count += 1
+            
+    return match_count
     
 def analyze_user_data(logs: List[Dict], user_id: int) -> Dict:
     """
@@ -909,6 +951,10 @@ def analyze_user_data(logs: List[Dict], user_id: int) -> Dict:
             })
             
     perfect_day = generate_perfect_day_blueprint(df)
+    
+    blueprint_badges = 0
+    if perfect_day:
+        blueprint_badges = count_blueprint_matches(df, perfect_day)
 
     result = {
         "user_id": user_id,
@@ -924,6 +970,10 @@ def analyze_user_data(logs: List[Dict], user_id: int) -> Dict:
         "top_recommendation": round_floats(top_rec) if top_rec else None,
         "action_plan": round_floats(action_plan),
         "perfect_day": round_floats(perfect_day),
+        "gamification": {
+            "blueprint_badges": blueprint_badges,
+            "total_logs": len(df)
+        },
         "time_series": time_series,
         "population_comparison": round_floats(population_comparison),
         "population_stats": {
