@@ -1,6 +1,7 @@
 TAG_LABELS = {
     'wfh': 'Working from Home',
     'office': 'the Office',
+    'cafe': 'Cafe',
     'deadline': 'Deadlines',
     'travel': 'Traveling',
     'sick': 'Feeling Sick',
@@ -15,6 +16,7 @@ TAG_LABELS = {
 TAG_ADVICE = {
     'wfh': "Consider setting stricter boundaries or finding a quiet zone.",
     'office': "Try noise-canceling headphones if it's too loud.",
+    'cafe': "Focus on maintenance tasks rather than deep work.",
     'deadline': "Try breaking big tasks into smaller, manageable steps.",
     'travel': "Focus on maintenance tasks rather than deep work.",
     'sick': "Rest is productive too. Be gentle with yourself.",

@@ -87,6 +87,7 @@ def engineer_features(df: pd.DataFrame) -> pd.DataFrame:
     # Is Weekend
     df['log_date'] = pd.to_datetime(df['log_date'])
     df['is_weekend'] = df['log_date'].dt.day_name().isin(['Saturday', 'Sunday'])
+    df['day_name'] = df['log_date'].dt.day_name()
     
     # Is Active
     df['is_active'] = df['physical_activity_min'] >= 30
@@ -752,17 +753,27 @@ def generate_perfect_day_blueprint(df: pd.DataFrame) -> Dict:
     """
     Analyzes the top 10% of days to generate a "Recipe" for success.
     """
+    if df.empty or len(df) < 3:
+        return None
+    
     # 1. Filter for High Performance Days (Top 10-15%)
     # We use quantile to find the cutoff score (e.g., productivity > 8.0)
-    cutoff = df['productivity'].quantile(0.85)
+    target_quantile = 0.85
+    min_days_needed = 3
+    while target_quantile >= 0.50:
+        cutoff = df['productivity'].quantile(target_quantile)
+        if cutoff < 5 and target_quantile > 0.5:
+            target_quantile = 0.75
+            continue
     
-    # If the user is consistently low (e.g. max is 4), take top 25% instead
-    if cutoff < 5:
-        cutoff = df['productivity'].quantile(0.75)
-
-    best_days = df[df['productivity'] >= cutoff]
+        best_days = df[df['productivity'] >= cutoff]
+        if len(best_days) >= min_days_needed:
+            break
+        
+        target_quantile -= 0.05
+        
     if len(best_days) < 3:
-        return None # Not enough data yet
+        return None
     
     # 2. Calculate the "Perfect Stats"
     blueprint = {
@@ -839,21 +850,22 @@ def calculate_badges(df: pd.DataFrame, blueprint: Dict) -> List[Dict]:
     Calculates badges based on user's data and blueprint.
     Returns a list of badge objects.
     """
-    if not blueprint or df.empty:
+    if df.empty:
         return []
     
     badges = []
     
     # --- 1. Perfect Day Badge ---
-    perfect_day_count = count_blueprint_matches(df, blueprint)
-    if perfect_day_count > 0: 
-        badges.append({
-            "id": "perfect_day",
-            "count": perfect_day_count, 
-            "label": "Blueprint Days",
-            "icon": "Medal",
-            "color": "indigo" 
-        })
+    if blueprint:
+        perfect_day_count = count_blueprint_matches(df, blueprint)
+        if perfect_day_count > 0: 
+            badges.append({
+                "id": "perfect_day",
+                "count": perfect_day_count, 
+                "label": "Blueprint Days",
+                "icon": "Medal",
+                "color": "indigo" 
+            })
         
     # --- 2. The Streak (Hot Streak) ---
     dates = pd.to_datetime(df['log_date']).dt.date.unique()
@@ -902,11 +914,103 @@ def calculate_badges(df: pd.DataFrame, blueprint: Dict) -> List[Dict]:
             "id": "unplugged",
             "count": len(unplugged_days),
             "label": "Digital Detox",
-            "icon": "Leaf",
+            "icon": "Sprout",
             "color": "green"
+        })
+        
+    # 5. NEW: Flow State (Peak Performance)
+    # Logic: High Mood AND High Productivity
+    flow_days = df[(df['mood'] >= 8) & (df['productivity'] >= 8)]
+    if len(flow_days) > 0:
+        badges.append({
+            "id": "flow_state",
+            "count": len(flow_days),
+            "label": "Flow State",
+            "icon": "Zap",       
+            "color": "yellow"    
+        })
+
+    # 6. NEW: Iron Body (High Activity)
+    # Logic: More than 60 mins of exercise
+    active_days = df[df['physical_activity_min'] >= 60]
+    if len(active_days) > 0:
+        badges.append({
+            "id": "iron_body",
+            "count": len(active_days),
+            "label": "Iron Body",
+            "icon": "Dumbbell",  
+            "color": "red"       
+        })
+
+    # 7. NEW: Zen Master (Low Stress)
+    # Logic: Stress level 3 or lower
+    zen_days = df[df['stress'] <= 3]
+    if len(zen_days) > 0:
+        badges.append({
+            "id": "zen_master",
+            "count": len(zen_days),
+            "label": "Zen Master",
+            "icon": "Sun",       
+            "color": "teal"      
         })
     
     return badges
+
+def analyze_weekly_rhythm(df: pd.DataFrame) -> Dict:
+    """
+    Groups productivity by Day of the Week to find natural rhythms.
+    """
+    if df.empty:
+        return None
+    
+    days_order = ['Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday', 'Sunday']
+    
+    # Calculate stats
+    weekly_stats = df.groupby('day_name')['productivity'].mean()
+    
+    # Reindex ensures all days are present (even if empty/NaN)
+    weekly_stats = weekly_stats.reindex(days_order)
+    
+    chart_data = []
+    best_day = None
+    max_score = -1
+    worst_score = 11
+    
+    valid_scores = []
+    
+    for day in days_order:
+        score = weekly_stats[day]
+        
+        # Handle NaN (days with no logs)
+        if pd.isna(score):
+            val = 0
+        else:
+            val = round(score, 1)
+            valid_scores.append(val)
+            
+            if val > max_score:
+                max_score = val
+                best_day = day
+            if val < worst_score:
+                worst_score = val
+                
+    insight = "Keep logging to find your rhythm."
+    percent_diff = 0
+    
+    if best_day and len(valid_scores) >= 3:
+        avg_score = sum(valid_scores) / len(valid_scores)
+        
+        if avg_score > 0:
+            percent_diff = int(((max_score - avg_score) / avg_score) * 100)
+            insight = f"You are {percent_diff}% more productive on {best_day}s compared to your average."
+
+    return {
+        "chart_data": [{"day": day, "score": 0 if pd.isna(weekly_stats[day]) else round(weekly_stats[day], 1)} for day in days_order],
+        "best_day": best_day,
+        "max_score": max_score,
+        "insight": insight,
+        "percent_diff": percent_diff
+    }
     
 def analyze_user_data(logs: List[Dict], user_id: int) -> Dict:
     """
@@ -1027,6 +1131,8 @@ def analyze_user_data(logs: List[Dict], user_id: int) -> Dict:
     perfect_day = generate_perfect_day_blueprint(df)
     
     badges = calculate_badges(df, perfect_day)
+    
+    weekly_rhythm = analyze_weekly_rhythm(df)
 
     result = {
         "user_id": user_id,
@@ -1050,7 +1156,8 @@ def analyze_user_data(logs: List[Dict], user_id: int) -> Dict:
             "std_deviations": round_floats(population_std),
             "users_analyzed": population_user_count
         },
-        "smart_insights": smart_insights
+        "smart_insights": smart_insights,
+        "weekly_rhythm": weekly_rhythm
     }
     
     return result
