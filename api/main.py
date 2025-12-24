@@ -5,7 +5,7 @@ from pydantic import BaseModel, EmailStr
 from typing import List, Optional
 import sys
 import os
-from datetime import date, datetime, timedelta
+from datetime import date, datetime, time, timedelta
 from fastapi.security import OAuth2PasswordRequestForm
 from fastapi.middleware.cors import CORSMiddleware
 
@@ -71,6 +71,8 @@ class DailyLogCreate(BaseModel):
     mood: Optional[float] = None
     productivity: Optional[float] = None
     sleep_hours: float
+    sleep_bed_time: Optional[time] = None 
+    sleep_wake_time: Optional[time] = None
     stress: Optional[float] = None
     physical_activity_min: Optional[int] = None
     activity_time: Optional[str] = None
@@ -86,6 +88,8 @@ class DailyLogUpdate(BaseModel):
     mood: Optional[float] = None
     productivity: Optional[float] = None
     sleep_hours: Optional[float] = None
+    sleep_bed_time: Optional[time] = None 
+    sleep_wake_time: Optional[time] = None
     stress: Optional[float] = None
     physical_activity_min: Optional[int] = None
     activity_time: Optional[str] = None
@@ -104,6 +108,8 @@ class DailyLogResponse(BaseModel):
     screen_time_hours: Optional[float] = None
     productivity: Optional[float] = None
     sleep_hours: float
+    sleep_bed_time: Optional[time] = None 
+    sleep_wake_time: Optional[time] = None
     stress: Optional[float] = None
     physical_activity_min: Optional[int] = None
     activity_time: Optional[str] = None
@@ -550,7 +556,7 @@ def get_all_logs(user_id: Optional[int] = None, limit: int = 100):
     if user_id:
         query = """
             SELECT id, user_id, log_date::text, mood, productivity, 
-                   sleep_hours, stress, physical_activity_min, activity_time, 
+                   sleep_hours, sleep_bed_time, sleep_wake_time, stress, physical_activity_min, activity_time, 
                    tags, sleep_quality, diet_quality, social_interaction_hours, 
                    notes, created_at::text
             FROM daily_logs 
@@ -562,7 +568,7 @@ def get_all_logs(user_id: Optional[int] = None, limit: int = 100):
     else:
         query = """
             SELECT id, user_id, log_date::text, mood, productivity, 
-                   sleep_hours, stress, physical_activity_min, activity_time, 
+                   sleep_hours, sleep_bed_time, sleep_wake_time, stress, physical_activity_min, activity_time, 
                    tags, sleep_quality, diet_quality, social_interaction_hours, 
                    notes, created_at::text
             FROM daily_logs 
@@ -580,7 +586,7 @@ def get_log(log_id: int):
     """
     query = """
         SELECT id, user_id, log_date::text, mood, productivity, 
-               sleep_hours, stress, physical_activity_min, activity_time, 
+               sleep_hours, sleep_bed_time, sleep_wake_time, stress, physical_activity_min, activity_time, 
                tags, sleep_quality, diet_quality, social_interaction_hours, 
                notes, created_at::text
         FROM daily_logs 
@@ -620,20 +626,20 @@ def create_log(log: DailyLogCreate, current_user: dict = Depends(get_current_use
     # Insert new log
     insert_query = """
         INSERT INTO daily_logs (
-            user_id, log_date, mood, productivity, sleep_hours, stress,
+            user_id, log_date, mood, productivity, sleep_hours, sleep_bed_time, sleep_wake_time, stress,
             physical_activity_min, activity_time, screen_time_hours, sleep_quality,
             diet_quality, social_interaction_hours, notes, tags
         )
-        VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
+        VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
         RETURNING id, user_id, log_date::text, mood, productivity,
-                  sleep_hours, stress, physical_activity_min, activity_time, screen_time_hours, tags, created_at::text
+                  sleep_hours, sleep_bed_time, sleep_wake_time, stress, physical_activity_min, activity_time, screen_time_hours, tags, created_at::text
     """
     
     new_log = execute_query(
         insert_query,
         params=(
             user_id, log.log_date, log.mood, log.productivity,
-            log.sleep_hours, log.stress, log.physical_activity_min,
+            log.sleep_hours, log.sleep_bed_time, log.sleep_wake_time, log.stress, log.physical_activity_min,
             log.activity_time, log.screen_time_hours, log.sleep_quality, log.diet_quality,
             log.social_interaction_hours, log.notes, log.tags
         ),
@@ -646,7 +652,7 @@ def create_log(log: DailyLogCreate, current_user: dict = Depends(get_current_use
 def update_log(
     log_id: int, 
     log: DailyLogUpdate,
-    current_user: dict = Depends(get_current_user)  # NEW: Require auth
+    current_user: dict = Depends(get_current_user)
 ):
     """
     Update an existing log
@@ -684,6 +690,12 @@ def update_log(
     if log.sleep_hours is not None:
         update_fields.append("sleep_hours = %s")
         params.append(log.sleep_hours)
+    if log.sleep_bed_time is not None:
+        update_fields.append("sleep_bed_time = %s")
+        params.append(log.sleep_bed_time)
+    if log.sleep_wake_time is not None:
+        update_fields.append("sleep_wake_time = %s")
+        params.append(log.sleep_wake_time)
     if log.stress is not None:
         update_fields.append("stress = %s")
         params.append(log.stress)
@@ -722,7 +734,7 @@ def update_log(
         SET {', '.join(update_fields)}
         WHERE id = %s
         RETURNING id, user_id, log_date::text, mood, productivity,
-                  sleep_hours, stress, physical_activity_min, activity_time, screen_time_hours, tags, created_at::text
+                  sleep_hours, sleep_bed_time, sleep_wake_time, stress, physical_activity_min, activity_time, screen_time_hours, tags, created_at::text
     """
     
     updated_log = execute_query(update_query, params=tuple(params), fetch_one=True)
@@ -778,7 +790,7 @@ def get_my_logs(
     # Build query
     query = """
         SELECT id, user_id, log_date::text, mood, productivity,
-               sleep_hours, stress, screen_time_hours,
+               sleep_hours, sleep_bed_time, sleep_wake_time, stress, screen_time_hours,
                physical_activity_min, activity_time, sleep_quality, diet_quality,
                social_interaction_hours, notes, tags,
                created_at::text
