@@ -971,7 +971,6 @@ def analyze_weekly_rhythm(df: pd.DataFrame) -> Dict:
     # Reindex ensures all days are present (even if empty/NaN)
     weekly_stats = weekly_stats.reindex(days_order)
     
-    chart_data = []
     best_day = None
     max_score = -1
     worst_score = 11
@@ -1003,9 +1002,11 @@ def analyze_weekly_rhythm(df: pd.DataFrame) -> Dict:
         if avg_score > 0:
             percent_diff = int(((max_score - avg_score) / avg_score) * 100)
             insight = f"You are {percent_diff}% more productive on {best_day}s compared to your average."
+    
+    chart_data = [{"day": day, "score": 0 if pd.isna(weekly_stats[day]) else round(weekly_stats[day], 1)} for day in days_order]
 
     return {
-        "chart_data": [{"day": day, "score": 0 if pd.isna(weekly_stats[day]) else round(weekly_stats[day], 1)} for day in days_order],
+        "chart_data": chart_data,
         "best_day": best_day,
         "max_score": max_score,
         "insight": insight,

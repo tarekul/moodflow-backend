@@ -17,6 +17,7 @@ from utils.email import send_password_reset_email, generate_reset_token
 from utils.database import execute_query, get_db, get_user_by_email
 from utils.auth import (hash_password, verify_password, create_access_token, get_current_user_email)
 from utils.analysis import analyze_user_data
+from utils.story_engine import generate_data_story
 
 def get_current_user(current_user_email: str = Depends(get_current_user_email)):
     """
@@ -856,6 +857,30 @@ def get_analysis(current_user: dict = Depends(get_current_user)):
         )
         
     return analysis_result
+
+@app.get("/story")
+def get_story(current_user: dict = Depends(get_current_user)):
+    user_id = current_user['id']
+    
+    # Fetch all logs for user
+    query = """
+        SELECT * FROM daily_logs
+        WHERE user_id = %s
+        ORDER BY log_date
+    """
+
+    logs = execute_query(query, params=(user_id,), fetch_all=True)
+    
+    if not logs:
+        raise HTTPException(
+            status_code=400,
+            detail="No logs found. Please log at least 7 days of data."
+        )
+    
+    story = generate_data_story(logs)
+    
+    return story
+    
 
 # ============================================
 # RUN SERVER (for development)
