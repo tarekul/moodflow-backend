@@ -805,7 +805,7 @@ def analyze_energy_drainers(df):
              insights.append({
                 "type": "warning",
                 "message": (
-                    f"🔋 **Sleep Debt:** You tagged 'Low Energy' on {today['log_date']}. "
+                    f"🔋 **Sleep Debt:** You tagged 'Low Energy' on today. "
                     f"This corresponds to sleeping only {today['sleep_hours']}h (Your norm is {baseline_sleep:.1f}h)."
                 )
             })
@@ -819,7 +819,7 @@ def analyze_energy_drainers(df):
                 insights.append({
                     "type": "warning",
                     "message": (
-                        f"🧠 **Stress Hangover:** You felt drained on {today['log_date']} despite sleeping okay. "
+                        f"🧠 **Stress Hangover:** You felt drained on today despite sleeping okay. "
                         f"This was likely caused by High Stress ({yesterday['stress']}/10) the day before."
                     )
                 })
