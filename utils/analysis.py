@@ -795,7 +795,6 @@ def analyze_energy_drainers(df):
     baseline_sleep = normal_days['sleep_hours'].mean()
     baseline_stress = normal_days['stress'].mean()
     
-    # --- ANALYSIS LOOP ---
     for idx in low_energy_indices:
         today = df.loc[idx]
         
@@ -805,7 +804,7 @@ def analyze_energy_drainers(df):
              insights.append({
                 "type": "warning",
                 "message": (
-                    f"🔋 **Sleep Debt:** You tagged 'Low Energy' on today. "
+                    f"🔋 **Sleep Debt:** You tagged 'Low Energy' today. "
                     f"This corresponds to sleeping only {today['sleep_hours']}h (Your norm is {baseline_sleep:.1f}h)."
                 )
             })
@@ -819,7 +818,7 @@ def analyze_energy_drainers(df):
                 insights.append({
                     "type": "warning",
                     "message": (
-                        f"🧠 **Stress Hangover:** You felt drained on today despite sleeping okay. "
+                        f"🧠 **Stress Hangover:** You felt drained today despite sleeping okay. "
                         f"This was likely caused by High Stress ({yesterday['stress']}/10) the day before."
                     )
                 })
