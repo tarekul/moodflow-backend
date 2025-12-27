@@ -753,7 +753,7 @@ def analyze_tag_impact(df: pd.DataFrame, baseline_productivity: float):
         if lift >= 15:
             # Positive Insight
             insights.append({
-                "type": "optimization", # Green Card
+                "type": "optimization",
                 "message": f"⚡ **Context Unlock:** You are **{int(lift)}% more productive** when {readable_tag}.",
                 "priority": 2
             })
@@ -768,6 +768,89 @@ def analyze_tag_impact(df: pd.DataFrame, baseline_productivity: float):
             })
             
     return insights
+
+def analyze_energy_drainers(df):
+    """
+    Finds out what leads to a "Low Energy" tag.
+    Checks TODAY for Sleep issues.
+    Checks YESTERDAY for Stress/Burnout "Hangovers".
+    """
+    if 'tags' not in df.columns: return None
+    
+    # 1. Identify "Low Energy" days
+    df = df.copy()
+    df['is_low_energy'] = df['tags'].apply(lambda x: 'low_energy' in x if isinstance(x, list) else False)
+    
+    # Get indices of low energy days
+    low_energy_indices = df.index[df['is_low_energy']].tolist()
+    
+    if not low_energy_indices: return None
+    
+    insights = []
+    
+    # Calculate User's Baselines (Normal Days)
+    normal_days = df[~df['is_low_energy']]
+    if normal_days.empty: return None
+    
+    baseline_sleep = normal_days['sleep_hours'].mean()
+    baseline_stress = normal_days['stress'].mean()
+    
+    # --- ANALYSIS LOOP ---
+    for idx in low_energy_indices:
+        today = df.loc[idx]
+        
+        # CHECK 1: TODAY'S SLEEP (The most likely culprit)
+        # If I slept significantly less than my normal baseline
+        if today['sleep_hours'] < (baseline_sleep - 1.0):
+             insights.append({
+                "type": "warning",
+                "message": (
+                    f"🔋 **Sleep Debt:** You tagged 'Low Energy' on {today['log_date']}. "
+                    f"This corresponds to sleeping only {today['sleep_hours']}h (Your norm is {baseline_sleep:.1f}h)."
+                )
+            })
+            
+        # CHECK 2: YESTERDAY'S STRESS (The Hangover)
+        # Only check previous day if it exists in the dataframe
+        elif (idx - 1) in df.index:
+            yesterday = df.loc[idx - 1]
+            
+            if yesterday['stress'] > (baseline_stress + 2.0):
+                insights.append({
+                    "type": "warning",
+                    "message": (
+                        f"🧠 **Stress Hangover:** You felt drained on {today['log_date']} despite sleeping okay. "
+                        f"This was likely caused by High Stress ({yesterday['stress']}/10) the day before."
+                    )
+                })
+                
+        # CHECK 3: DIGITAL BURNOUT (Dopamine Crash)
+        # Did they have huge screen time yesterday?
+        elif (idx - 1) in df.index and df.loc[idx-1].get('screen_time_hours', 0) > 5.0:
+             prev_screen = df.loc[idx-1]['screen_time_hours']
+             insights.append({
+                "type": "warning",
+                "message": (
+                    f"📱 **Digital Drain:** You slept well, but your battery is empty. "
+                    f"This might be a 'dopamine crash' from high Screen Time ({prev_screen}h) yesterday."
+                )
+            })
+             
+        # CHECK 4: SEDENTARY INERTIA (The "Rust" Effect)
+        # Did they barely move yesterday? (assuming 'physical_activity_min' exists)
+        elif (idx - 1) in df.index and df.loc[idx-1].get('physical_activity_min', 0) < 15:
+             insights.append({
+                "type": "suggestion",
+                "message": (
+                    "🏃 **Inertia:** Your energy is low because you've been too still. "
+                    "Data shows practically zero movement yesterday. Try a 10-minute walk to jumpstart your system."
+                )
+            })
+                
+    
+    unique_insights = {i['message']: i for i in insights}.values()
+    
+    return list(unique_insights)[:2]
 
 def generate_perfect_day_blueprint(df: pd.DataFrame) -> Dict:
     """
@@ -1056,89 +1139,6 @@ def get_second_order_insights(df, top_driver_col):
         "target": top_driver_col,      # e.g., "mood"
         "correlation": corr_value      # e.g., 0.72
     }
-    
-def analyze_energy_drainers(df):
-    """
-    Finds out what leads to a "Low Energy" tag.
-    Checks TODAY for Sleep issues.
-    Checks YESTERDAY for Stress/Burnout "Hangovers".
-    """
-    if 'tags' not in df.columns: return None
-    
-    # 1. Identify "Low Energy" days
-    df = df.copy()
-    df['is_low_energy'] = df['tags'].apply(lambda x: 'Low Energy' in x if isinstance(x, list) else False)
-    
-    # Get indices of low energy days
-    low_energy_indices = df.index[df['is_low_energy']].tolist()
-    
-    if not low_energy_indices: return None
-    
-    insights = []
-    
-    # Calculate User's Baselines (Normal Days)
-    normal_days = df[~df['is_low_energy']]
-    if normal_days.empty: return None
-    
-    baseline_sleep = normal_days['sleep_hours'].mean()
-    baseline_stress = normal_days['stress'].mean()
-    
-    # --- ANALYSIS LOOP ---
-    for idx in low_energy_indices:
-        today = df.loc[idx]
-        
-        # CHECK 1: TODAY'S SLEEP (The most likely culprit)
-        # If I slept significantly less than my normal baseline
-        if today['sleep_hours'] < (baseline_sleep - 1.0):
-             insights.append({
-                "type": "warning",
-                "message": (
-                    f"🔋 **Sleep Debt:** You tagged 'Low Energy' on {today['log_date']}. "
-                    f"This corresponds to sleeping only {today['sleep_hours']}h (Your norm is {baseline_sleep:.1f}h)."
-                )
-            })
-            
-        # CHECK 2: YESTERDAY'S STRESS (The Hangover)
-        # Only check previous day if it exists in the dataframe
-        elif (idx - 1) in df.index:
-            yesterday = df.loc[idx - 1]
-            
-            if yesterday['stress'] > (baseline_stress + 2.0):
-                insights.append({
-                    "type": "warning",
-                    "message": (
-                        f"🧠 **Stress Hangover:** You felt drained on {today['log_date']} despite sleeping okay. "
-                        f"This was likely caused by High Stress ({yesterday['stress']}/10) the day before."
-                    )
-                })
-                
-        # CHECK 3: DIGITAL BURNOUT (Dopamine Crash)
-        # Did they have huge screen time yesterday?
-        elif (idx - 1) in df.index and df.loc[idx-1].get('screen_time_hours', 0) > 5.0:
-             prev_screen = df.loc[idx-1]['screen_time_hours']
-             insights.append({
-                "type": "warning",
-                "message": (
-                    f"📱 **Digital Drain:** You slept well, but your battery is empty. "
-                    f"This might be a 'dopamine crash' from high Screen Time ({prev_screen}h) yesterday."
-                )
-            })
-             
-        # CHECK 4: SEDENTARY INERTIA (The "Rust" Effect)
-        # Did they barely move yesterday? (assuming 'physical_activity_min' exists)
-        elif (idx - 1) in df.index and df.loc[idx-1].get('physical_activity_min', 0) < 15:
-             insights.append({
-                "type": "suggestion",
-                "message": (
-                    "🏃 **Inertia:** Your energy is low because you've been too still. "
-                    "Data shows practically zero movement yesterday. Try a 10-minute walk to jumpstart your system."
-                )
-            })
-                
-    
-    unique_insights = {i['message']: i for i in insights}.values()
-    
-    return list(unique_insights)[:2]
     
 def analyze_user_data(logs: List[Dict], user_id: int) -> Dict:
     """
