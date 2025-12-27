@@ -181,6 +181,7 @@ def get_top_recommendation(correlations: List[Dict]) -> Dict:
     
     return {
         "factor": factor_name,
+        "original_col": top['original_col'],
         "correlation": top['correlation'],
         "strength": top['strength'],
         "potential_gain": abs(top['correlation']) * 2,
@@ -1013,6 +1014,30 @@ def analyze_weekly_rhythm(df: pd.DataFrame) -> Dict:
         "percent_diff": percent_diff
     }
     
+def get_second_order_insights(df, top_driver_col):
+    """
+    Finds what drives the Top Driver.
+    e.g. If 'mood' is the top driver for productivity, what drives 'mood'?
+    """
+    # 1. Drop targets we don't care about (Productivity) and the driver itself
+    potential_inputs = df.drop(columns=['productivity', top_driver_col], errors='ignore')
+    
+    # 2. Correlate inputs against the Top Driver (e.g., Mood)
+    # Ensure numeric
+    numeric_df = potential_inputs.select_dtypes(include=[np.number])
+    correlations = numeric_df.corrwith(df[top_driver_col])
+    
+    # 3. Find the strongest influence
+    # Sort by absolute value to find strongest positive OR negative driver
+    strongest_influence = correlations.abs().sort_values(ascending=False).index[0]
+    corr_value = correlations[strongest_influence]
+    
+    return {
+        "driver": strongest_influence, # e.g., "sleep_hours"
+        "target": top_driver_col,      # e.g., "mood"
+        "correlation": corr_value      # e.g., 0.72
+    }
+    
 def analyze_user_data(logs: List[Dict], user_id: int) -> Dict:
     """
     Main analysis function - runs all phases INCLUDING population comparison
@@ -1134,7 +1159,48 @@ def analyze_user_data(logs: List[Dict], user_id: int) -> Dict:
     badges = calculate_badges(df, perfect_day)
     
     weekly_rhythm = analyze_weekly_rhythm(df)
+    
+    if abs(top_rec['correlation']) > 0.6:
+        root_cause = get_second_order_insights(df, top_rec['original_col'])
+    
+        if abs(root_cause['correlation']) > 0.4:
+            driver_name = root_cause['driver'].replace('_', ' ').title()
+            target_name = root_cause['target'].title()
+        
+            is_positive_target = top_rec['correlation'] > 0
+            
+            message = ""
+            
+            if is_positive_target:
+                if root_cause['correlation'] > 0:
+                    message = (
+                        f"**Root Cause:** Your {target_name} is heavily influenced by **{driver_name}**. "
+                        f"To boost your {target_name}, focus on improving {driver_name}."
+                    )
+                else:
+                    message = (
+                        f"**Root Cause:** High **{driver_name}** is killing your {target_name}. "
+                        f"Managing {driver_name} is key to keeping your {target_name} high."
+                    )
 
+            else:
+                if root_cause['correlation'] > 0:
+                    message = (
+                        f"**Root Cause:** Your high {target_name} is driven by **{driver_name}**. "
+                        f"To lower your {target_name}, you must manage {driver_name}."
+                    )
+                else:
+                    message = (
+                        f"**Root Cause:** Lack of **{driver_name}** is causing your {target_name} to spike. "
+                        f"Prioritize {driver_name} to keep {target_name} under control."
+                    )
+
+            smart_insights.append({
+                "type": "root_cause", 
+                "icon": "🔗", 
+                "message": message
+            })
+            
     result = {
         "user_id": user_id,
         "days_logged": len(df),
