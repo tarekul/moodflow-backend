@@ -12,7 +12,6 @@ from utils.constants import TAG_LABELS, TAG_ADVICE
 def round_floats(obj):
     """
     Recursively round floats to 2 decimals.
-    Converts NaN/Infinity to None (null) for valid JSON.
     """
     if isinstance(obj, float):
         if math.isnan(obj) or math.isinf(obj):
@@ -769,84 +768,89 @@ def analyze_tag_impact(df: pd.DataFrame, baseline_productivity: float):
             
     return insights
 
+
 def analyze_energy_drainers(df):
     """
     Finds out what leads to a "Low Energy" tag.
-    Checks TODAY for Sleep issues.
-    Checks YESTERDAY for Stress/Burnout "Hangovers".
+    Restricted to the LAST 7 DAYS to ensure relevance.
     """
-    if 'tags' not in df.columns: return None
+    if 'tags' not in df.columns or df.empty: return None
+
+    # 1. Calculate the Date Cutoff (Today - 7 Days)
+    if not pd.api.types.is_datetime64_any_dtype(df['log_date']):
+        df['log_date'] = pd.to_datetime(df['log_date'])
+        
+    cutoff_date = datetime.now() - timedelta(days=7)
     
-    # 1. Identify "Low Energy" days
-    df = df.copy()
-    df['is_low_energy'] = df['tags'].apply(lambda x: 'low_energy' in x if isinstance(x, list) else False)
+    # 2. FILTER: Create a "Recent View" for finding tags
+    recent_df = df[df['log_date'] >= cutoff_date].copy()
     
-    # Get indices of low energy days
-    low_energy_indices = df.index[df['is_low_energy']].tolist()
+    if recent_df.empty: return None
+
+    # 3. Identify "Low Energy" days within the RECENT week
+    recent_df['is_low_energy'] = recent_df['tags'].apply(lambda x: 'low_energy' in x if isinstance(x, list) else False)
+    recent_low_energy_indices = recent_df.index[recent_df['is_low_energy']].tolist()
     
-    if not low_energy_indices: return None
+    if not recent_low_energy_indices: return None
     
     insights = []
     
-    # Calculate User's Baselines (Normal Days)
-    normal_days = df[~df['is_low_energy']]
+    # 4. Calculate Baselines using ALL data (Better accuracy)
+    df['is_low_energy_all'] = df['tags'].apply(lambda x: 'low_energy' in x if isinstance(x, list) else False)
+    normal_days = df[~df['is_low_energy_all']]
+    
     if normal_days.empty: return None
     
     baseline_sleep = normal_days['sleep_hours'].mean()
     baseline_stress = normal_days['stress'].mean()
     
-    for idx in low_energy_indices:
-        today = df.loc[idx]
+    for idx in recent_low_energy_indices:
+        row = df.loc[idx]
+        log_date_str = row['log_date'].strftime('%A')
         
-        # CHECK 1: TODAY'S SLEEP (The most likely culprit)
-        # If I slept significantly less than my normal baseline
-        if today['sleep_hours'] < (baseline_sleep - 1.0):
+        # CHECK 1: TODAY'S SLEEP
+        if row['sleep_hours'] < (baseline_sleep - 1.0):
              insights.append({
                 "type": "warning",
                 "message": (
-                    f"🔋 **Sleep Debt:** You tagged 'Low Energy' today. "
-                    f"This corresponds to sleeping only {today['sleep_hours']}h (Your norm is {baseline_sleep:.1f}h)."
+                    f"🔋 **Sleep Debt:** You tagged 'Low Energy' on {log_date_str}. "
+                    f"This matches sleeping only {row['sleep_hours']}h (Your norm is {baseline_sleep:.1f}h)."
                 )
             })
             
-        # CHECK 2: YESTERDAY'S STRESS (The Hangover)
-        # Only check previous day if it exists in the dataframe
+        # CHECK 2: YESTERDAY'S STRESS
         elif (idx - 1) in df.index:
             yesterday = df.loc[idx - 1]
-            
             if yesterday['stress'] > (baseline_stress + 2.0):
                 insights.append({
                     "type": "warning",
                     "message": (
-                        f"🧠 **Stress Hangover:** You felt drained today despite sleeping okay. "
-                        f"This was likely caused by High Stress ({yesterday['stress']}/10) the day before."
+                        f"🧠 **Stress Hangover:** You felt drained on {log_date_str}. "
+                        f"Likely caused by High Stress ({yesterday['stress']}/10) the day before."
                     )
                 })
-                
-        # CHECK 3: DIGITAL BURNOUT (Dopamine Crash)
-        # Did they have huge screen time yesterday?
+
+        # CHECK 3: DIGITAL BURNOUT
         elif (idx - 1) in df.index and df.loc[idx-1].get('screen_time_hours', 0) > 5.0:
              prev_screen = df.loc[idx-1]['screen_time_hours']
              insights.append({
                 "type": "warning",
                 "message": (
-                    f"📱 **Digital Drain:** You slept well, but your battery is empty. "
-                    f"This might be a 'dopamine crash' from high Screen Time ({prev_screen}h) yesterday."
+                    f"📱 **Digital Drain:** You felt drained on {log_date_str}. "
+                    f"Possible 'dopamine crash' from high Screen Time ({prev_screen}h) yesterday."
                 )
             })
              
-        # CHECK 4: SEDENTARY INERTIA (The "Rust" Effect)
-        # Did they barely move yesterday? (assuming 'physical_activity_min' exists)
+        # CHECK 4: SEDENTARY INERTIA
         elif (idx - 1) in df.index and df.loc[idx-1].get('physical_activity_min', 0) < 15:
              insights.append({
                 "type": "suggestion",
                 "message": (
-                    "🏃 **Inertia:** Your energy is low because you've been too still. "
-                    "Data shows practically zero movement yesterday. Try a 10-minute walk to jumpstart your system."
+                    f"🏃 **Inertia:** Low energy on {log_date_str} due to inactivity. "
+                    "You barely moved the day before. Try a walk to reboot."
                 )
             })
                 
-    
     unique_insights = {i['message']: i for i in insights}.values()
     
     return list(unique_insights)[:2]
@@ -1020,7 +1024,7 @@ def calculate_badges(df: pd.DataFrame, blueprint: Dict) -> List[Dict]:
             "color": "green"
         })
         
-    # 5. NEW: Flow State (Peak Performance)
+    # 5. Flow State (Peak Performance)
     # Logic: High Mood AND High Productivity
     flow_days = df[(df['mood'] >= 8) & (df['productivity'] >= 8)]
     if len(flow_days) > 0:
@@ -1032,7 +1036,7 @@ def calculate_badges(df: pd.DataFrame, blueprint: Dict) -> List[Dict]:
             "color": "yellow"    
         })
 
-    # 6. NEW: Iron Body (High Activity)
+    # 6. Iron Body (High Activity)
     # Logic: More than 60 mins of exercise
     active_days = df[df['physical_activity_min'] >= 60]
     if len(active_days) > 0:
@@ -1044,7 +1048,7 @@ def calculate_badges(df: pd.DataFrame, blueprint: Dict) -> List[Dict]:
             "color": "red"       
         })
 
-    # 7. NEW: Zen Master (Low Stress)
+    # 7. Zen Master (Low Stress)
     # Logic: Stress level 3 or lower
     zen_days = df[df['stress'] <= 3]
     if len(zen_days) > 0:
@@ -1082,7 +1086,7 @@ def analyze_weekly_rhythm(df: pd.DataFrame) -> Dict:
     for day in days_order:
         score = weekly_stats[day]
         
-        # Handle NaN (days with no logs)
+        
         if pd.isna(score):
             val = 0
         else:
@@ -1141,50 +1145,23 @@ def get_second_order_insights(df, top_driver_col):
     
 def analyze_user_data(logs: List[Dict], user_id: int) -> Dict:
     """
-    Main analysis function - runs all phases INCLUDING population comparison
-    
-    Args:
-        logs: List of user's daily logs (from database)
-        user_id: User ID
-    
-    Returns:
-        Complete analysis results with population comparison
+    Tiered Analysis:
+    - Tier 1 (1+ days): Summary, Time Series, Badges
+    - Tier 2 (3+ days): Weekly Rhythm
+    - Tier 2.5 (5+ days): Predictions, Tag Impact, Energy Drainers
+    - Tier 3 (7+ days): Correlations, Root Cause, Optimization, Action Plans
     """
-    # Convert to DataFrame
     df = pd.DataFrame(logs)
     
-    if len(df) < 7:
-        return {
-            "error": f"Need at least 7 days of data. You have {len(df)} days.",
-            "days_needed": 7 - len(df)
-        }
+    if df.empty:
+        return {"error": "No data found"}
     
     # Engineer features
     df = engineer_features(df)
     
-    # Calculate user's correlations
-    correlations = calculate_correlations(df)
-    
-    # Calculate population correlations
-    population_avg, population_std, population_user_count = calculate_population_correlations()
-    
-    # Compare user to population
-    population_comparison = compare_to_population(
-        correlations, 
-        population_avg, 
-        population_std
-    )
-    
-    # Get boosters and drainers
-    boosters, drainers = get_boosters_and_drainers(correlations)
-    
-    # Top recommendation
-    top_rec = get_top_recommendation(correlations)
-    
-    # Action plan
-    action_plan = create_action_plan(correlations, user_id, df)
-    
-    # Summary stats
+    # ==================================================
+    # TIER 1: THE BASICS (1+ DAYS)
+    # ==================================================
     summary = {
         "avg_productivity": round(float(df['productivity'].mean()), 2),
         "avg_mood": round(float(df['mood'].mean()), 2),
@@ -1192,85 +1169,81 @@ def analyze_user_data(logs: List[Dict], user_id: int) -> Dict:
         "avg_stress": round(float(df['stress'].mean()), 2)
     }
     
-    # Time series data for charts
     time_series = df[['log_date', 'mood', 'productivity', 'stress', 'sleep_hours', 'physical_activity_min']].copy()
     time_series['log_date'] = time_series['log_date'].dt.strftime('%Y-%m-%d')
-    time_series = time_series.to_dict('records')
+    time_series = round_floats(time_series.to_dict('records'))
     
-    # Round all numeric values in time series
-    time_series = round_floats(time_series)
-    
-    smart_insights = []
-    
-    # Predict today's productivity
-    predicted_productivity = predict_today_productivity(df)
-    
-    # Add prediction to insights
-    if predicted_productivity and isinstance(predicted_productivity, str):
-        smart_insights.append({
-            "type": "prediction", 
-            "message": predicted_productivity,
-            "priority": 1
-        })
-        
-    tag_insights = analyze_tag_impact(df, summary['avg_productivity'])
-    smart_insights.extend(tag_insights)
-    
-    top_factors = correlations[:3]
-    
-    for factor in top_factors:
-        col_name = factor.get('original_col', factor['factor'].lower().replace(' ', '_'))
-        
-        # Try to find optimal zone
-        if factor['factor'] not in ["Mood", "Diet Quality", "Social Interaction"]:
-            display_name = factor['factor']
-            display_name = display_name.replace(' Hours', '').replace(' Min', '').replace(' Score', '') 
-            opt_msg = find_optimal_factor_zone(df, col_name, display_name)
-            if opt_msg:
-                smart_insights.append({
-                    "type": "optimization", 
-                    "message": opt_msg,
-                    "priority": 2
-                })
-                
-        lift_msg = calculate_general_lift(df, col_name, factor['factor'], factor['is_booster'])
-        if lift_msg:
-            if "Workout" in factor['factor'] and factor['is_booster']:
-                is_activity_drainer = any(d['factor'] == 'Physical Activity Min' for d in drainers)
-                
-                if is_activity_drainer:
-                    clean_lift_msg = lift_msg.replace("🚀 ", "").replace("📈 ", "")
-                    time_of_day = factor['factor'].replace(" Workout", "")
-                    
-                    lift_msg = (
-                        f"🚀 **Timing Unlock:** While long workouts can sometimes drain you, "
-                        f"**{time_of_day} Workouts** are your superpower. {clean_lift_msg}"
-                    )
-                    
-                    drainers = [d for d in drainers if d['factor'] != 'Physical Activity Min']
-            
-            smart_insights.append({
-                "type": "impact",
-                "message": lift_msg,
-                "priority": 3
-            })
-            
-    perfect_day = generate_perfect_day_blueprint(df)
-    
+    perfect_day = generate_perfect_day_blueprint(df) 
     badges = calculate_badges(df, perfect_day)
     
-    weekly_rhythm = analyze_weekly_rhythm(df)
+    smart_insights = []
+
+    # ==================================================
+    # TIER 2: TRENDS (3+ DAYS)
+    # ==================================================
+    weekly_rhythm = {
+        "chart_data": [], 
+        "best_day": None, 
+        "insight": "Not enough data", 
+        "percent_diff": 0
+    }
     
-    if abs(top_rec['correlation']) > 0.6:
-        root_cause = get_second_order_insights(df, top_rec['original_col'])
-    
-        if abs(root_cause['correlation']) > 0.4:
-            driver_name = root_cause['driver'].replace('_', ' ').title()
-            target_name = root_cause['target'].title()
+    if len(df) >= 3:
+        weekly_rhythm = analyze_weekly_rhythm(df)
+
+    # Initialize Tier 3 defaults
+    correlations = []
+    boosters = []
+    drainers = []
+    top_rec = None
+    action_plan = []
+    population_comparison = []
+    population_avg, population_std = {}, {}
+    population_user_count = 0
+
+    # ==================================================
+    # TIER 2.5: ADVANCED PATTERNS (5+ DAYS)
+    # ==================================================
+    if len(df) >= 5:
+        # Prediction
+        predicted_prod = predict_today_productivity(df)
+        if predicted_prod and isinstance(predicted_prod, str):
+            smart_insights.append({
+                "type": "prediction", 
+                "message": predicted_prod, 
+                "priority": 1
+            })
+
+        # Tag Analysis
+        tag_insights = analyze_tag_impact(df, summary['avg_productivity'])
+        smart_insights.extend(tag_insights)
         
-            is_positive_target = top_rec['correlation'] > 0
-            
-            message = ""
+        # Energy Analysis
+        energy_drainers = analyze_energy_drainers(df)
+        if energy_drainers:
+            smart_insights.extend(energy_drainers)
+ 
+    # ==================================================
+    # TIER 3: DEEP AI (7+ DAYS)
+    # ==================================================
+    if len(df) >= 7:
+        correlations = calculate_correlations(df)
+        population_avg, population_std, population_user_count = calculate_population_correlations()
+        population_comparison = compare_to_population(correlations, population_avg, population_std)
+        boosters, drainers = get_boosters_and_drainers(correlations)
+        top_rec = get_top_recommendation(correlations)
+        action_plan = create_action_plan(correlations, user_id, df)    
+        
+        # 1. Root Cause Analysis
+        if top_rec and abs(top_rec['correlation']) > 0.6: # Added safety check for top_rec exists
+            root_cause = get_second_order_insights(df, top_rec['original_col'])
+        
+            if abs(root_cause['correlation']) > 0.4:
+                driver_name = root_cause['driver'].replace('_', ' ').title()
+                target_name = root_cause['target'].title()
+                is_positive_target = top_rec['correlation'] > 0
+                
+                message = ""
             
             if is_positive_target:
                 if root_cause['correlation'] > 0:
@@ -1300,11 +1273,42 @@ def analyze_user_data(logs: List[Dict], user_id: int) -> Dict:
                 "icon": "🔗", 
                 "message": message
             })
+
+        # 2. Optimization Zones & Lift (The Loop)
+        top_factors = correlations[:3]
+    
+        for factor in top_factors:
+            col_name = factor.get('original_col', factor['factor'].lower().replace(' ', '_'))
             
-        energy_drainers = analyze_energy_drainers(df)
-        if energy_drainers:
-            smart_insights.extend(energy_drainers)
+            # Optimization Zone
+            if factor['factor'] not in ["Mood", "Diet Quality", "Social Interaction"]:
+                display_name = factor['factor'].replace(' Hours', '').replace(' Min', '').replace(' Score', '') 
+                opt_msg = find_optimal_factor_zone(df, col_name, display_name)
+                if opt_msg:
+                    smart_insights.append({
+                        "type": "optimization", 
+                        "message": opt_msg,
+                        "priority": 2
+                    })
             
+            # General Lift
+            lift_msg = calculate_general_lift(df, col_name, factor['factor'], factor['is_booster'])
+            if lift_msg:
+                # Custom Workout Logic
+                if "Workout" in factor['factor'] and factor['is_booster']:
+                    is_activity_drainer = any(d['factor'] == 'Physical Activity Min' for d in drainers)
+                    if is_activity_drainer:
+                        clean_lift_msg = lift_msg.replace("🚀 ", "").replace("📈 ", "")
+                        time_of_day = factor['factor'].replace(" Workout", "")
+                        lift_msg = f"🚀 **Timing Unlock:** While long workouts can sometimes drain you, **{time_of_day} Workouts** are your superpower. {clean_lift_msg}"
+                        drainers = [d for d in drainers if d['factor'] != 'Physical Activity Min']
+                
+                smart_insights.append({
+                    "type": "impact",
+                    "message": lift_msg,
+                    "priority": 3
+                })
+
     result = {
         "user_id": user_id,
         "days_logged": len(df),
