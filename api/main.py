@@ -358,6 +358,30 @@ def get_current_user(current_user_email: str = Depends(get_current_user_email)):
     
     return user
 
+@app.delete("/me")
+def delete_my_account(current_user: dict = Depends(get_current_user)):
+    """
+    Permanently delete the current user's account and all associated data.
+    This action is irreversible.
+    """
+    user_id = current_user['id']
+    
+    try:
+        delete_logs_query = "DELETE FROM daily_logs WHERE user_id = %s"
+        execute_query(delete_logs_query, params=(user_id,))
+        
+        delete_user_query = "DELETE FROM users WHERE id = %s"
+        execute_query(delete_user_query, params=(user_id,))
+        
+        return {"message": "Account and all data permanently deleted"}
+        
+    except Exception as e:
+        print(f"Error deleting account: {e}")
+        raise HTTPException(
+            status_code=500, 
+            detail="Failed to delete account. Please try again."
+        )
+
 @app.get("/users/{user_id}/summary")
 def get_user_summary(user_id: int):
     """
