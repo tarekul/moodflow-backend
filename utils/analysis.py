@@ -7,7 +7,7 @@ from utils.database import execute_query
 import math
 import random
 import hashlib
-from utils.constants import TAG_LABELS, TAG_ADVICE
+from utils.constants import TAG_ADVICE
 
 def round_floats(obj):
     """
@@ -710,59 +710,80 @@ def format_prediction(val):
     score = max(1, min(10, round(val, 1)))
     return f"Based on your patterns, today looks like a {score}/10 productivity day."
 
-def analyze_tag_impact(df: pd.DataFrame, baseline_productivity: float):
+def analyze_tag_impact(df: pd.DataFrame, baseline: float, target_col: str = 'productivity'):
     """
-    Analyzes how specific tags impact productivity compared to the baseline.
-    Returns a list of Smart Insight objects.
+    Analyzes how specific tags impact a target metric (productivity, mood, stress).
     """
     insights = []
     
-    # 1. Safety Check: Ensure 'tags' column exists and drop empty rows
-    if 'tags' not in df.columns:
+    # 1. Validation
+    if 'tags' not in df.columns or target_col not in df.columns:
         return []
-    
-    tagged_df = df.dropna(subset=['tags'])
+
+    # 2. Filter valid rows for this specific metric
+    tagged_df = df.dropna(subset=['tags', target_col])
     tagged_df = tagged_df[tagged_df['tags'].apply(lambda x: isinstance(x, list) and len(x) > 0)]
     
-    if tagged_df.empty:
+    if tagged_df.empty or baseline == 0:
         return []
     
-    # 2. Explode the tags
-    # This turns one row like [Date: 12-01, Tags: ['WFH', 'Tired']] 
-    # into two rows: [Date: 12-01, Tag: 'WFH'] and [Date: 12-01, Tag: 'Tired']
+    # 3. Explode and Group
     exploded_df = tagged_df.explode('tags')
+    tag_stats = exploded_df.groupby('tags')[target_col].agg(['mean', 'count'])
     
-    # 3. Group by Tag
-    tag_stats = exploded_df.groupby('tags')['productivity'].agg(['mean', 'count'])
+    # Require at least 3 occurrences to be statistically relevant
     valid_tags = tag_stats[tag_stats['count'] >= 3]
     
     if valid_tags.empty:
         return []
     
-    # 4. Generate Insights
+    # 4. Define Logic based on Metric
+    # Stress is "Inverse" -> Higher is Bad, Lower is Good
+    is_inverse = (target_col == 'stress')
+    
     for tag, row in valid_tags.iterrows():
-        avg_prod = row['mean']
+        avg_val = row['mean']
+        lift = ((avg_val - baseline) / baseline) * 100
         
-        if baseline_productivity == 0: continue
-        
-        lift = ((avg_prod - baseline_productivity) / baseline_productivity) * 100
-        
-        readable_tag = TAG_LABELS.get(tag, tag)
-        
-        if lift >= 15:
-            # Positive Insight
+        # Skip insignificant changes (less than 15%)
+        if abs(lift) < 15:
+            continue
+
+        # --- A. POSITIVE IMPACT (Good stuff) ---
+        # For Prod/Mood: Lift > 0 is good.
+        # For Stress: Lift < 0 (Drop) is good.
+        if (not is_inverse and lift >= 15) or (is_inverse and lift <= -15):
+            
+            if target_col == 'productivity':
+                msg = f"⚡ **Context Unlock:** You are **{int(lift)}% more productive** when {tag}."
+            elif target_col == 'mood':
+                msg = f"✨ **Mood Booster:** You feel **{int(lift)}% happier** when {tag}."
+            elif target_col == 'stress':
+                msg = f"🧘 **Stress Relief:** Your stress drops by **{abs(int(lift))}%** when {tag}."
+
             insights.append({
                 "type": "optimization",
-                "message": f"⚡ **Context Unlock:** You are **{int(lift)}% more productive** when {readable_tag}.",
+                "message": msg,
                 "priority": 2
             })
-        elif lift <= -15:
-            # Negative Insight
-            advice = TAG_ADVICE.get(tag, "Try to identify potential distractions.")
+
+        # --- B. NEGATIVE IMPACT (Bad stuff) ---
+        # For Prod/Mood: Lift < 0 is bad.
+        # For Stress: Lift > 0 (Spike) is bad.
+        elif (not is_inverse and lift <= -15) or (is_inverse and lift >= 15):
             
+            advice = "" # You can fetch from TAG_ADVICE here if you want
+            
+            if target_col == 'productivity':
+                msg = f"⚠️ **Focus Drain:** Productivity drops by **{abs(int(lift))}%** when {tag}."
+            elif target_col == 'mood':
+                msg = f"🌧️ **Mood Dampener:** You feel **{abs(int(lift))}% worse** when {tag}."
+            elif target_col == 'stress':
+                msg = f"🔥 **Stress Trigger:** Your stress spikes by **{int(lift)}%** when {tag}."
+
             insights.append({
-                "type": "impact", 
-                "message": f"⚠️ **Context Alert:** Your productivity drops by **{abs(int(lift))}%** when {readable_tag}. {advice}",
+                "type": "warning", 
+                "message": f"{msg} {advice}",
                 "priority": 2
             })
             
@@ -1215,8 +1236,18 @@ def analyze_user_data(logs: List[Dict], user_id: int) -> Dict:
             })
 
         # Tag Analysis
-        tag_insights = analyze_tag_impact(df, summary['avg_productivity'])
-        smart_insights.extend(tag_insights)
+        # 1. Get Productivity Insights
+        prod_insights = analyze_tag_impact(df, summary['avg_productivity'], 'productivity')
+    
+        # 2. Get Mood Insights
+        mood_insights = analyze_tag_impact(df, summary['avg_mood'], 'mood')
+    
+        # 3. Get Stress Insights
+        stress_insights = analyze_tag_impact(df, summary['avg_stress'], 'stress')
+    
+        # Combine them (and maybe sort by impact or priority)
+        all_tag_insights = prod_insights + mood_insights + stress_insights
+        smart_insights.extend(all_tag_insights)
         
         # Energy Analysis
         energy_drainers = analyze_energy_drainers(df)

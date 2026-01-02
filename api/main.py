@@ -138,6 +138,16 @@ class ResetPasswordRequest(BaseModel):
     
 class GoogleAuthRequest(BaseModel):
     token: str
+    
+class TagCreate(BaseModel):
+    tag_name: str
+    
+class TagUpdate(BaseModel):
+    tag_id: int
+    tag_name: str
+    
+class TagDelete(BaseModel):
+    tag_id: int
 
 # ============================================
 # ENDPOINTS
@@ -567,6 +577,73 @@ def reset_password(request: ResetPasswordRequest):
     return {
         "message": "Password reset successfully. You can now log in with your new password."
     }
+
+# ============================================
+# CUSTOM TAGS ENDPOINTS
+# ============================================
+
+@app.get("/custom-tags")
+def get_custom_tags(current_user: dict = Depends(get_current_user)):
+    """
+    Get all custom tags for a user
+    """
+    query = """
+        SELECT id, user_id, tag_name, created_at::text
+        FROM custom_tags
+        WHERE user_id = %s
+    """
+    tags = execute_query(query, params=(current_user['id'],), fetch_all=True)
+    
+    return tags if tags else []
+
+@app.post("/custom-tags")
+def create_custom_tag(tag: TagCreate, current_user: dict = Depends(get_current_user)):
+    """
+    Create a new custom tag.
+    """
+    insert_query = """
+        INSERT INTO custom_tags (user_id, tag_name)
+        VALUES (%s, %s)
+        RETURNING id, user_id, tag_name, created_at::text
+    """
+    
+    new_tag = execute_query(
+        insert_query,
+        params=(current_user['id'], tag.tag_name),
+        fetch_one=True
+    )
+    
+    return new_tag
+
+@app.put("/custom-tags")
+def update_custom_tag(tag: TagUpdate, current_user: dict = Depends(get_current_user)):
+    """
+    Update a custom tag by ID
+    """
+    update_query = """
+        UPDATE custom_tags 
+        SET tag_name = %s 
+        WHERE id = %s AND user_id = %s
+        RETURNING id, user_id, tag_name, created_at::text
+    """
+    updated_tag = execute_query(
+        update_query,
+        params=(tag.tag_name, tag.tag_id, current_user['id']),
+        fetch_one=True
+    )
+    
+    return updated_tag
+
+@app.delete("/custom-tags")
+def delete_custom_tag(tag: TagDelete):
+    """
+    Delete a custom tag by ID
+    """
+    delete_query = "DELETE FROM custom_tags WHERE id = %s"
+    
+    execute_query(delete_query, params=(tag.tag_id,)) 
+    
+    return {"message": "Custom tag deleted successfully"}
 
 # ============================================
 # LOG ENDPOINTS
