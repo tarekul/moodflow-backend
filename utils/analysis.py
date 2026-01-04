@@ -731,11 +731,11 @@ def analyze_tag_impact(df: pd.DataFrame, baseline: float, target_col: str = 'pro
         if (not is_inverse and lift >= 15) or (is_inverse and lift <= -15):
             
             if target_col == 'productivity':
-                msg = f"⚡ **Context Unlock:** You are **{int(lift)}% more productive** when {tag}."
+                msg = f"⚡ **Context Unlock:** You are **{int(lift)}% more productive** when you tag {tag}."
             elif target_col == 'mood':
-                msg = f"✨ **Mood Booster:** You feel **{int(lift)}% happier** when {tag}."
+                msg = f"✨ **Mood Booster:** You feel **{int(lift)}% happier** when you tag {tag}."
             elif target_col == 'stress':
-                msg = f"🧘 **Stress Relief:** Your stress drops by **{abs(int(lift))}%** when {tag}."
+                msg = f"🧘 **Stress Relief:** Your stress drops by **{abs(int(lift))}%** when you tag {tag}."
 
             insights.append({
                 "type": "optimization",
@@ -751,11 +751,11 @@ def analyze_tag_impact(df: pd.DataFrame, baseline: float, target_col: str = 'pro
             advice = "" # You can fetch from TAG_ADVICE here if you want
             
             if target_col == 'productivity':
-                msg = f"⚠️ **Focus Drain:** Productivity drops by **{abs(int(lift))}%** when {tag}."
+                msg = f"⚠️ **Focus Drain:** Productivity drops by **{abs(int(lift))}%** when you tag {tag}."
             elif target_col == 'mood':
-                msg = f"🌧️ **Mood Dampener:** You feel **{abs(int(lift))}% worse** when {tag}."
+                msg = f"🌧️ **Mood Dampener:** You feel **{abs(int(lift))}% worse** when you tag {tag}."
             elif target_col == 'stress':
-                msg = f"🔥 **Stress Trigger:** Your stress spikes by **{int(lift)}%** when {tag}."
+                msg = f"🔥 **Stress Trigger:** Your stress spikes by **{int(lift)}%** when you tag {tag}."
 
             insights.append({
                 "type": "warning", 
