@@ -129,15 +129,6 @@ def engineer_features(df: pd.DataFrame) -> pd.DataFrame:
         }
         df['sleep_quality_score'] = df['sleep_quality'].map(sleep_quality_map)
     
-    # Diet Quality Score (if categorical)
-    if 'diet_quality' in df.columns:
-        diet_quality_map = {
-            'Poor': 1,
-            'Average': 2,
-            'Good': 3
-        }
-        df['diet_quality_score'] = df['diet_quality'].map(diet_quality_map)
-    
     return df
 
 def get_boosters_and_drainers(correlations: List[Dict]) -> Tuple[List[Dict], List[Dict]]:
@@ -165,7 +156,6 @@ def get_top_recommendation(correlations: List[Dict]) -> Dict:
         "Sleep Hours": {"step": 1, "unit": "hour", "direction": "Increasing"},
         "Screen Time Hours": {"step": 1, "unit": "hour", "direction": "Reducing"},
         "Physical Activity Min": {"step": 30, "unit": "minutes", "direction": "Increasing"},
-        "Diet Quality": {"step": 1, "unit": "level", "direction": "Improving"},
         "Morning Workout": {"step": 1, "unit": "session", "direction": "Prioritizing"},
         "Afternoon Workout": {"step": 1, "unit": "session", "direction": "Prioritizing"},
         "Evening Workout": {"step": 1, "unit": "session", "direction": "Prioritizing"},
@@ -203,7 +193,6 @@ def calculate_factor_averages(df: pd.DataFrame) -> Dict[str, float]:
         'stress': 'Stress',
         'physical_activity_min': 'Physical Activity',
         'screen_time_hours': 'Screen Time',
-        'diet_quality_score': 'Diet Quality',
         'social_interaction_hours': 'Social Interaction' 
     }
 
@@ -246,22 +235,6 @@ def generate_smart_goal(factor: str, current_avg: float, template: str) -> str:
         # Aim for +15 mins
         target = round(current_avg + 15)
         if target < 20: target = 20
-        
-    elif factor == "Diet Quality":
-        # Map: 1=Poor, 2=Average, 3=Good
-        current_level = round(current_avg)
-        
-        # Goal: Aim for one level higher, maxing out at 3 (Good)
-        target_level = min(3, current_level + 1)
-        
-        # If they are already "Good" (3), keep it "Good"
-        if target_level < 2: target_level = 2 # Minimum goal "Average"
-        
-        # Convert number back to text for the UI
-        level_map = {1: "Poor", 2: "Average", 3: "Good"}
-        target_str = level_map.get(target_level, "Good")
-        
-        return template.format(target=target_str)
 
     elif factor == "Screen Time":
         # Aim for -1 hour, min 2
@@ -1285,7 +1258,7 @@ def analyze_user_data(logs: List[Dict], user_id: int) -> Dict:
             col_name = factor.get('original_col', factor['factor'].lower().replace(' ', '_'))
             
             # Optimization Zone
-            if factor['factor'] not in ["Mood", "Diet Quality", "Social Interaction"]:
+            if factor['factor'] not in ["Mood", "Social Interaction"]:
                 display_name = factor['factor'].replace(' Hours', '').replace(' Min', '').replace(' Score', '') 
                 opt_msg = find_optimal_factor_zone(df, col_name, display_name)
                 if opt_msg:

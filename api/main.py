@@ -79,7 +79,6 @@ class DailyLogCreate(BaseModel):
     activity_time: Optional[str] = None
     screen_time_hours: Optional[float] = None
     sleep_quality: Optional[str] = None
-    diet_quality: Optional[str] = None
     social_interaction_hours: Optional[float] = None
     notes: Optional[str] = None
     tags: Optional[List[str]] = None
@@ -96,7 +95,6 @@ class DailyLogUpdate(BaseModel):
     activity_time: Optional[str] = None
     screen_time_hours: Optional[float] = None
     sleep_quality: Optional[str] = None
-    diet_quality: Optional[str] = None
     social_interaction_hours: Optional[float] = None
     notes: Optional[str] = None
     tags: Optional[List[str]] = None
@@ -115,7 +113,6 @@ class DailyLogResponse(BaseModel):
     physical_activity_min: Optional[int] = None
     activity_time: Optional[str] = None
     sleep_quality: Optional[str] = None
-    diet_quality: Optional[str] = None
     social_interaction_hours: Optional[float] = None
     notes: Optional[str] = None
     created_at: str
@@ -659,7 +656,7 @@ def get_all_logs(user_id: Optional[int] = None, limit: int = 100):
         query = """
             SELECT id, user_id, log_date::text, mood, productivity, 
                    sleep_hours, sleep_bed_time, sleep_wake_time, stress, physical_activity_min, activity_time, 
-                   tags, sleep_quality, diet_quality, social_interaction_hours, 
+                   tags, sleep_quality, social_interaction_hours, 
                    notes, created_at::text
             FROM daily_logs 
             WHERE user_id = %s 
@@ -671,7 +668,7 @@ def get_all_logs(user_id: Optional[int] = None, limit: int = 100):
         query = """
             SELECT id, user_id, log_date::text, mood, productivity, 
                    sleep_hours, sleep_bed_time, sleep_wake_time, stress, physical_activity_min, activity_time, 
-                   tags, sleep_quality, diet_quality, social_interaction_hours, 
+                   tags, sleep_quality, social_interaction_hours, 
                    notes, created_at::text
             FROM daily_logs 
             ORDER BY log_date DESC 
@@ -689,7 +686,7 @@ def get_log(log_id: int):
     query = """
         SELECT id, user_id, log_date::text, mood, productivity, 
                sleep_hours, sleep_bed_time, sleep_wake_time, stress, physical_activity_min, activity_time, 
-               tags, sleep_quality, diet_quality, social_interaction_hours, 
+               tags, sleep_quality, social_interaction_hours, 
                notes, created_at::text
         FROM daily_logs 
         WHERE id = %s
@@ -730,7 +727,7 @@ def create_log(log: DailyLogCreate, current_user: dict = Depends(get_current_use
         INSERT INTO daily_logs (
             user_id, log_date, mood, productivity, sleep_hours, sleep_bed_time, sleep_wake_time, stress,
             physical_activity_min, activity_time, screen_time_hours, sleep_quality,
-            diet_quality, social_interaction_hours, notes, tags
+            social_interaction_hours, notes, tags
         )
         VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
         RETURNING id, user_id, log_date::text, mood, productivity,
@@ -742,7 +739,7 @@ def create_log(log: DailyLogCreate, current_user: dict = Depends(get_current_use
         params=(
             user_id, log.log_date, log.mood, log.productivity,
             log.sleep_hours, log.sleep_bed_time, log.sleep_wake_time, log.stress, log.physical_activity_min,
-            log.activity_time, log.screen_time_hours, log.sleep_quality, log.diet_quality,
+            log.activity_time, log.screen_time_hours, log.sleep_quality,
             log.social_interaction_hours, log.notes, log.tags
         ),
         fetch_one=True
@@ -813,9 +810,6 @@ def update_log(
     if log.sleep_quality is not None:
         update_fields.append("sleep_quality = %s")
         params.append(log.sleep_quality)
-    if log.diet_quality is not None:
-        update_fields.append("diet_quality = %s")
-        params.append(log.diet_quality)
     if log.social_interaction_hours is not None:
         update_fields.append("social_interaction_hours = %s")
         params.append(log.social_interaction_hours)
@@ -893,7 +887,7 @@ def get_my_logs(
     query = """
         SELECT id, user_id, log_date::text, mood, productivity,
                sleep_hours, sleep_bed_time, sleep_wake_time, stress, screen_time_hours,
-               physical_activity_min, activity_time, sleep_quality, diet_quality,
+               physical_activity_min, activity_time, sleep_quality,
                social_interaction_hours, notes, tags,
                created_at::text
         FROM daily_logs

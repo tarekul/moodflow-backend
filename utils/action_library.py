@@ -118,25 +118,5 @@ action_library = {
                 "metric_template": "Socialize > {target} hour on 4 days"
             }
         ]
-    },
-    "Diet Quality": {
-        "icon": "Apple",
-        "strategies": [
-            {
-                "title": "Hydration Station",
-                "actions": ["Drink water immediately upon waking", "Keep a water bottle at your desk", "Drink a glass of water before every meal"],
-                "metric_template": "Diet Quality '{target}' on 5 days"
-            },
-            {
-                "title": "Green Machine",
-                "actions": ["Add a fruit or veggie to breakfast", "Have a salad or green side with lunch", "Snack on nuts or fruit instead of chips"],
-                "metric_template": "Diet Quality '{target}' on 5 days"
-            },
-            {
-                "title": "Mindful Eating",
-                "actions": ["Eat without screens/distractions", "Chew slowly and savor food", "Stop eating when 80% full"],
-                "metric_template": "Diet Quality '{target}' on 5 days"
-            }
-        ]
     }
 }
