@@ -7,7 +7,6 @@ from utils.database import execute_query
 import math
 import random
 import hashlib
-from utils.constants import TAG_ADVICE
 
 def round_floats(obj):
     """
@@ -748,8 +747,6 @@ def analyze_tag_impact(df: pd.DataFrame, baseline: float, target_col: str = 'pro
         # For Stress: Lift > 0 (Spike) is bad.
         elif (not is_inverse and lift <= -15) or (is_inverse and lift >= 15):
             
-            advice = "" # You can fetch from TAG_ADVICE here if you want
-            
             if target_col == 'productivity':
                 msg = f"⚠️ **Focus Drain:** Productivity drops by **{abs(int(lift))}%** when you tag {tag}."
             elif target_col == 'mood':
@@ -759,7 +756,7 @@ def analyze_tag_impact(df: pd.DataFrame, baseline: float, target_col: str = 'pro
 
             insights.append({
                 "type": "warning", 
-                "message": f"{msg} {advice}",
+                "message": f"{msg}",
                 "priority": 2
             })
             
