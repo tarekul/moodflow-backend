@@ -295,19 +295,14 @@ def create_action_plan(correlations: List[Dict], user_id: int, df: pd.DataFrame)
         if factor in action_library:
             strategies = action_library[factor]["strategies"]
             
-            # Deterministic Randomness (Rotates daily, stable for 24h)
             seed_str = f"{user_id}-{factor}-{today_str}"
             seed_int = int(hashlib.sha256(seed_str.encode('utf-8')).hexdigest(), 16)
             random.seed(seed_int)
             
             strategy = random.choice(strategies)
             
-            # 2. Generate Dynamic Metric String
-            # Get user's average for this factor (default to 0 if missing)
             current_avg = user_averages.get(factor, 0)
             
-            # Inject smart numbers into the text
-            # e.g. "Screen time < {target} hours" becomes "Screen time < 3.5 hours"
             dynamic_metric = generate_smart_goal(
                 factor, 
                 current_avg, 
@@ -326,25 +321,6 @@ def create_action_plan(correlations: List[Dict], user_id: int, df: pd.DataFrame)
                 "potential_impact": abs(correlation['correlation']) * 2
             })
             priority += 1
-    
-    recent_logs = df.tail(3)
-    has_low_energy = recent_logs['tags'].apply(lambda x: 'Low Energy' in x if isinstance(x, list) else False).any()
-    
-    if has_low_energy:
-        # Force a specific action card to appear at the top
-        action_plan.insert(0, {
-            "priority": 0, # Top priority
-            "factor": "Energy Management",
-            "icon": "BatteryCharging", # Lucid icon name
-            "title": "Recharge Protocol",
-            "daily_actions": [
-                "Go to bed 30 mins earlier tonight",
-                "No caffeine after 2 PM",
-                "Take a 15 min walk in sunlight"
-            ],
-            "success_metric": "Tag 'High Energy' tomorrow",
-            "potential_impact": "High"
-        })
     
     return action_plan
 
