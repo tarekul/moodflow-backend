@@ -729,7 +729,7 @@ def create_log(log: DailyLogCreate, current_user: dict = Depends(get_current_use
             physical_activity_min, activity_time, screen_time_hours, sleep_quality,
             social_interaction_hours, notes, tags
         )
-        VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
+        VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
         RETURNING id, user_id, log_date::text, mood, productivity,
                   sleep_hours, sleep_bed_time, sleep_wake_time, stress, physical_activity_min, activity_time, screen_time_hours, tags, created_at::text
     """

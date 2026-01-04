@@ -62,7 +62,7 @@ def execute_query(query, params=None, fetch_one=False, fetch_all=False):
         Query results or None
     """
     with get_db() as conn:
-        cursor = conn.cursor(cursor_factory=RealDictCursor) # Returns rows as dictionaries
+        cursor = conn.cursor(cursor_factory=RealDictCursor) 
         cursor.execute(query, params)
         
         if fetch_one:
